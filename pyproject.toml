@@ -1,0 +1,40 @@
+[project]
+name = "windictoo"
+version = "1.3.0"
+description = "Локальный голосовой ввод для Windows: горячая клавиша, Whisper, вставка в активное поле"
+readme = "README.md"
+license = "MIT"
+authors = [
+    { name = "nowoandi", email = "nowoandi@googlemail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "customtkinter>=6.0.0",
+    "faster-whisper>=1.2.1",
+    "hf-xet>=1.1.0",
+    "httpx>=0.28.1",
+    "numpy>=2.5.1",
+    "pillow>=12.3.0",
+    "pynput>=1.8.2",
+    "pystray>=0.19.5",
+    "sounddevice>=0.5.5",
+]
+
+[project.scripts]
+windictoo = "windictoo.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.11.29,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: runs the real Whisper model against synthesized speech (slow)",
+]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.21.0",
+    "pytest>=9.1.1",
+]
