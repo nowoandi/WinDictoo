@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# uv
+# (uv.lock IS committed on purpose — it pins exact dependency versions)
+
+# WinDictoo local artifacts
+tests/_smoke.wav
+smoke_run.out
+smoke_run.err
+run.out
+run.err
+
+# PyInstaller build output (259 MB — rebuild with packaging/WinDictoo.spec)
+build/
+dist/
+
+# Env
+.env
+.env.local
+
+# Node (leftover from template)
+node_modules/
+.next/
+prisma/migrations/
+
+dist_onefile/
+build_onefile/
