@@ -68,7 +68,7 @@ class Dictation:
             self._target_hwnd = hwnd
             self._set_state(State.RECORDING)
         try:
-            self.recorder.start()
+            self.recorder.start(device=self.cfg.input_device_index)
         except Exception as exc:  # noqa: BLE001
             log.exception("could not start recording")
             self._set_state(State.ERROR, f"Микрофон недоступен: {exc}")

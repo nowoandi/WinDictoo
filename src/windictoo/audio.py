@@ -62,7 +62,9 @@ class Recorder:
             self.level = min(1.0, rms * 18)
             self._peak = max(self._peak, self.level)
 
-    def start(self) -> None:
+    def start(self, device: int | None = None) -> None:
+        """`device` overrides the user's saved microphone choice (see
+        Config.input_device_index); None means "system default"."""
         if self.is_recording:
             return
         with self._lock:
@@ -70,32 +72,40 @@ class Recorder:
             self._peak = 0.0
             self.level = 0.0
             self.is_recording = True
-        device = _preferred_input_device()
-        try:
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=1,
-                dtype="float32",
-                blocksize=1024,
-                device=device,
-                callback=self._callback,
-            )
-            self._stream.start()
-        except Exception:
-            if device is None:
-                raise
-            # The WASAPI device may be stale (headset just disconnected) —
-            # one retry on PortAudio's own default beats a hard failure.
-            log.warning("WASAPI input device %s failed, retrying on default", device)
-            self._stream = sd.InputStream(
-                samplerate=SAMPLE_RATE,
-                channels=1,
-                dtype="float32",
-                blocksize=1024,
-                callback=self._callback,
-            )
-            self._stream.start()
-        log.info("recording started")
+
+        # Fallback chain: the user's chosen device, then WASAPI's own
+        # default, then whatever PortAudio itself considers default — each
+        # a little less specific, so a disconnected/renumbered device never
+        # hard-fails the whole session.
+        candidates: list[int | None] = []
+        if device is not None:
+            candidates.append(device)
+        preferred = _preferred_input_device()
+        if preferred is not None and preferred not in candidates:
+            candidates.append(preferred)
+        candidates.append(None)
+
+        last_exc: Exception | None = None
+        for i, dev in enumerate(candidates):
+            try:
+                self._stream = sd.InputStream(
+                    samplerate=SAMPLE_RATE,
+                    channels=1,
+                    dtype="float32",
+                    blocksize=1024,
+                    device=dev,
+                    callback=self._callback,
+                )
+                self._stream.start()
+                last_exc = None
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                if i < len(candidates) - 1:
+                    log.warning("input device %s failed (%s), trying next", dev, exc)
+        if last_exc is not None:
+            raise last_exc
+        log.info("recording started (device=%s)", dev)
 
     def _teardown(self) -> np.ndarray:
         with self._lock:
@@ -130,8 +140,19 @@ class Recorder:
 
 
 def input_devices() -> list[tuple[int, str]]:
+    """WASAPI-hosted input devices only — the host API this app always
+    prefers (see _preferred_input_device). Without this filter the same
+    physical microphone shows up to four times, once per legacy host API
+    (MME/DirectSound/WDM-KS), which only confuses a device picker."""
+    try:
+        hostapis = sd.query_hostapis()
+        wasapi_idx = next(
+            (i for i, h in enumerate(hostapis) if h["name"] == "Windows WASAPI"), None
+        )
+    except Exception:  # noqa: BLE001
+        wasapi_idx = None
     return [
         (i, d["name"])
         for i, d in enumerate(sd.query_devices())
-        if d["max_input_channels"] > 0
+        if d["max_input_channels"] > 0 and (wasapi_idx is None or d["hostapi"] == wasapi_idx)
     ]

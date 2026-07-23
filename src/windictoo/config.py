@@ -28,12 +28,22 @@ class Config:
     # (otherwise holding e.g. Space types spaces / moves the caret).
     suppress_hotkey: bool = True
 
+    # None = system default (WASAPI), else a specific sounddevice index from
+    # audio.input_devices(). Indices aren't stable across reboots/USB
+    # replugs on every system, so treat a stale value as "device gone" and
+    # fall back rather than raising (Recorder.start() already does this).
+    input_device_index: int | None = None
+
     model: str = "small"
     compute_type: str = "int8"
     # English default: the project is published for an international
     # audience, not just Russian speakers.
     language: str = "en"  # "auto" | "ru" | "de" | "en"
     threads: int = 4
+
+    # 0 = keep the model in RAM forever (fastest repeat dictation); >0 =
+    # unload it after that many idle minutes to free RAM on weaker PCs.
+    unload_model_idle_min: int = 0
 
     refine_enabled: bool = False
     ollama_endpoint: str = "http://127.0.0.1:11434"
