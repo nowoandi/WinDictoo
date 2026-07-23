@@ -125,17 +125,20 @@ class WinDictooGUI:
         # that.)
         header = ctk.CTkFrame(self.root, fg_color="transparent")
         header.pack(fill="x", padx=24, pady=(20, 6))
-        ctk.CTkButton(header, text="⋮", width=40, height=40, corner_radius=20,
-                      font=_font(24, "bold"), fg_color=theme.CARD, hover_color=theme.CARD_HI,
+        ctk.CTkButton(header, text="⋮", width=40, height=40, corner_radius=theme.RADIUS_WIDGET,
+                      border_width=1, border_color=theme.STROKE,
+                      font=_font(20, "bold"), fg_color=theme.CARD, hover_color=theme.CARD_HI,
                       text_color=theme.TEXT, command=self.open_settings).pack(side="right")
         theme_icon = "☀" if self.cfg.ui_theme == "dark" else "🌙"
-        ctk.CTkButton(header, text=theme_icon, width=40, height=40, corner_radius=20,
+        ctk.CTkButton(header, text=theme_icon, width=40, height=40, corner_radius=theme.RADIUS_WIDGET,
+                      border_width=1, border_color=theme.STROKE,
                       font=_font(16), fg_color=theme.CARD, hover_color=theme.CARD_HI,
                       text_color=theme.TEXT, command=self._toggle_theme).pack(side="right", padx=(0, 8))
         ctk.CTkLabel(header, text="WinDictoo", font=_font(24, "bold"), text_color=theme.TEXT).pack(side="left")
 
         # Hero card. The mic is clickable — it starts/stops dictation.
-        hero = ctk.CTkFrame(self.root, fg_color=theme.CARD, corner_radius=22)
+        hero = ctk.CTkFrame(self.root, fg_color=theme.CARD, corner_radius=theme.RADIUS_CONTAINER,
+                            border_width=1, border_color=theme.STROKE)
         hero.pack(fill="x", padx=20, pady=8)
         self.hero_frame = hero
         if self._update_info is not None:
@@ -164,35 +167,39 @@ class WinDictooGUI:
         self.mode_chip = self._chip(chips, "⏱ " + ("удержание" if self.cfg.mode == "hold" else "переключ."))
 
         # Primary Start/Stop button (label toggles with state).
-        self.test_btn = ctk.CTkButton(self.root, text="▶   Старт", height=50,
-                                      corner_radius=25, font=_font(15, "bold"),
+        self.test_btn = ctk.CTkButton(self.root, text="▶   Старт", height=48,
+                                      corner_radius=theme.RADIUS_BUTTON, font=_font(15, "bold"),
                                       fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
                                       command=self._toggle_dictation)
         self.test_btn.pack(fill="x", padx=20, pady=(10, 4))
 
         # Result card (roomy, so the recognized text is always visible)
-        self.result_card = ctk.CTkFrame(self.root, fg_color=theme.CARD, corner_radius=18)
+        self.result_card = ctk.CTkFrame(self.root, fg_color=theme.CARD,
+                                        corner_radius=theme.RADIUS_CONTAINER,
+                                        border_width=1, border_color=theme.STROKE)
         self.result_card.pack(fill="both", expand=True, padx=20, pady=(8, 18))
         rhead = ctk.CTkFrame(self.result_card, fg_color="transparent")
         rhead.pack(fill="x", padx=16, pady=(10, 2))
         ctk.CTkLabel(rhead, text="РАСПОЗНАННЫЙ ТЕКСТ", font=_font(10, "bold"),
                      text_color=theme.MUTED).pack(side="left")
-        self.copy_btn = ctk.CTkButton(rhead, text="⧉ Копировать", width=110, height=27,
-                                      corner_radius=13, font=_font(11, "bold"), fg_color=theme.CARD_HI,
-                                      hover_color=theme.STROKE, text_color=theme.ACCENT_HOVER,
-                                      command=self._copy_result)
+        self.copy_btn = ctk.CTkButton(rhead, text="⧉ Копировать", width=110, height=28,
+                                      corner_radius=theme.RADIUS_WIDGET, font=_font(11, "bold"),
+                                      fg_color=theme.CARD_HI, hover_color=theme.STROKE,
+                                      text_color=theme.ACCENT_HOVER, border_width=1,
+                                      border_color=theme.STROKE, command=self._copy_result)
         self.copy_btn.pack(side="right")
         # Read-only but selectable, so Ctrl+C works (a disabled textbox can be
         # neither selected nor copied).
         self.result_box = ctk.CTkTextbox(self.result_card, font=_font(13), fg_color=theme.CARD_HI,
-                                         text_color=theme.TEXT, corner_radius=12, wrap="word",
-                                         border_width=0, height=80)
+                                         text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
+                                         wrap="word", border_width=1, border_color=theme.STROKE, height=80)
         self.result_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.result_box.insert("1.0", "Нажмите Старт или микрофон и продиктуйте…")
         self.result_box.bind("<Key>", self._readonly_key)
 
     def _chip(self, parent, text: str) -> ctk.CTkLabel:
-        f = ctk.CTkFrame(parent, fg_color=theme.CARD, corner_radius=14)
+        f = ctk.CTkFrame(parent, fg_color=theme.CARD, corner_radius=theme.RADIUS_CHIP,
+                         border_width=1, border_color=theme.STROKE)
         f.pack(side="left", padx=(0, 8))
         lbl = ctk.CTkLabel(f, text=text, font=_font(11), text_color=theme.MUTED)
         lbl.pack(padx=12, pady=6)
@@ -365,7 +372,7 @@ class WinDictooGUI:
             pass
 
     @staticmethod
-    def _round_window(ov, w, h, r=26) -> None:
+    def _round_window(ov, w, h, r=32) -> None:
         try:
             import ctypes
 
@@ -484,7 +491,9 @@ class WinDictooGUI:
         self.settings_win = win
         tabs = ctk.CTkTabview(win, fg_color=theme.CARD, segmented_button_fg_color=theme.CARD,
                               segmented_button_selected_color=theme.ACCENT,
-                              segmented_button_selected_hover_color=theme.ACCENT_HOVER)
+                              segmented_button_selected_hover_color=theme.ACCENT_HOVER,
+                              corner_radius=theme.RADIUS_CARD,
+                              border_width=1, border_color=theme.STROKE)
         tabs.pack(fill="both", expand=True, padx=16, pady=16)
         for name in ("Основные", "Распознавание", "Улучшение", "Приватность"):
             tabs.add(name)
@@ -494,7 +503,8 @@ class WinDictooGUI:
         self._tab_privacy(tabs.tab("Приватность"))
 
     def _card(self, parent, title: str) -> ctk.CTkFrame:
-        outer = ctk.CTkFrame(parent, fg_color=theme.CARD_HI, corner_radius=14)
+        outer = ctk.CTkFrame(parent, fg_color=theme.CARD_HI, corner_radius=theme.RADIUS_CARD,
+                             border_width=1, border_color=theme.STROKE)
         outer.pack(fill="x", padx=6, pady=7)
         ctk.CTkLabel(outer, text=title.upper(), font=_font(10, "bold"),
                      text_color=theme.MUTED).pack(anchor="w", padx=14, pady=(10, 2))
@@ -506,6 +516,7 @@ class WinDictooGUI:
         row.pack(fill="x", padx=14, pady=(0, 8))
         ctk.CTkLabel(row, text="Сочетание", font=_font(13), text_color=theme.TEXT).pack(side="left")
         self.hk_btn = ctk.CTkButton(row, text=describe(self.cfg.hotkey), width=170,
+                                    corner_radius=theme.RADIUS_BUTTON,
                                     fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
                                     command=self._capture_hotkey)
         self.hk_btn.pack(side="right")
@@ -513,6 +524,7 @@ class WinDictooGUI:
         self.hk_err.pack(anchor="w", padx=14)
         mode = ctk.CTkSegmentedButton(
             c1, values=["Удержание", "Переключение"],
+            corner_radius=theme.RADIUS_WIDGET,
             selected_color=theme.ACCENT, selected_hover_color=theme.ACCENT_HOVER,
             command=lambda v: self._set_mode("hold" if v == "Удержание" else "toggle"))
         mode.set("Удержание" if self.cfg.mode == "hold" else "Переключение")
@@ -526,6 +538,7 @@ class WinDictooGUI:
         c2 = self._card(tab, "Куда вставлять текст")
         method = ctk.CTkSegmentedButton(
             c2, values=["Печать в поле", "Буфер (Ctrl+V)"],
+            corner_radius=theme.RADIUS_WIDGET,
             selected_color=theme.ACCENT, selected_hover_color=theme.ACCENT_HOVER,
             command=lambda v: self._set_method("type" if v == "Печать в поле" else "paste"))
         method.set("Печать в поле" if self.cfg.insertion_method == "type" else "Буфер (Ctrl+V)")
@@ -534,6 +547,7 @@ class WinDictooGUI:
         c_theme = self._card(tab, "Тема оформления")
         th = ctk.CTkSegmentedButton(
             c_theme, values=["Тёмная", "Светло-зелёная"],
+            corner_radius=theme.RADIUS_WIDGET,
             selected_color=theme.ACCENT, selected_hover_color=theme.ACCENT_HOVER,
             command=lambda v: self.set_theme("dark" if v == "Тёмная" else "light-green"))
         th.set("Тёмная" if self.cfg.ui_theme == "dark" else "Светло-зелёная")
@@ -552,22 +566,24 @@ class WinDictooGUI:
         # text_color must be explicit: CTk's default button text is white,
         # which vanishes on the white CARD background of the light theme.
         om = ctk.CTkOptionMenu(c1, values=MODELS, variable=mv, fg_color=theme.CARD,
-                               text_color=theme.TEXT,
+                               text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
+                               border_width=1, border_color=theme.STROKE,
                                button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
                                command=lambda v: self._set_model(v))
         om.pack(fill="x", padx=14, pady=(2, 6))
         self.model_status = ctk.CTkLabel(c1, text="tiny/base — быстро · small — баланс · large-v3 — точнее",
                                          font=_font(11), text_color=theme.MUTED, wraplength=460)
         self.model_status.pack(anchor="w", padx=14)
-        ctk.CTkButton(c1, text="Загрузить модель сейчас", fg_color=theme.ACCENT,
-                      hover_color=theme.ACCENT_HOVER, command=self._preload_model).pack(
-            anchor="w", padx=14, pady=10)
+        ctk.CTkButton(c1, text="Загрузить модель сейчас", corner_radius=theme.RADIUS_BUTTON,
+                      fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
+                      command=self._preload_model).pack(anchor="w", padx=14, pady=10)
 
         c2 = self._card(tab, "Параметры")
         lv = ctk.StringVar(value=next(l[0] for l in LANGS if l[1] == self.cfg.language))
         ctk.CTkLabel(c2, text="Язык речи", font=_font(12), text_color=theme.TEXT).pack(anchor="w", padx=14)
         ctk.CTkOptionMenu(c2, values=[l[0] for l in LANGS], variable=lv, fg_color=theme.CARD,
-                          text_color=theme.TEXT,
+                          text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
+                          border_width=1, border_color=theme.STROKE,
                           button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
                           command=lambda v: self._set_lang(v)).pack(fill="x", padx=14, pady=(2, 8))
         self.thr_lbl = ctk.CTkLabel(c2, text=f"Потоков CPU: {self.cfg.threads}", font=_font(12),
@@ -601,10 +617,11 @@ class WinDictooGUI:
                          wraplength=470, justify="left").pack(anchor="w", padx=14, pady=1)
         btns = ctk.CTkFrame(cs, fg_color="transparent")
         btns.pack(fill="x", padx=14, pady=(8, 12))
-        ctk.CTkButton(btns, text="🌐 Открыть сайт Ollama", fg_color=theme.ACCENT,
-                      hover_color=theme.ACCENT_HOVER,
+        ctk.CTkButton(btns, text="🌐 Открыть сайт Ollama", corner_radius=theme.RADIUS_BUTTON,
+                      fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
                       command=self._open_ollama_site).pack(side="left")
         self._pull_btn = ctk.CTkButton(btns, text="⧉ Скопировать команду модели",
+                                       corner_radius=theme.RADIUS_BUTTON,
                                        fg_color=theme.CARD, hover_color=theme.CARD_HI,
                                        text_color=theme.TEXT, border_width=1,
                                        border_color=theme.STROKE,
@@ -616,10 +633,13 @@ class WinDictooGUI:
                            progress_color=theme.ACCENT, command=lambda: self._set_refine(en.get()))
         en.select() if self.cfg.refine_enabled else en.deselect()
         en.pack(anchor="w", padx=14, pady=(2, 8))
-        ep = ctk.CTkEntry(c1, placeholder_text="http://127.0.0.1:11434", fg_color=theme.CARD)
+        ep = ctk.CTkEntry(c1, placeholder_text="http://127.0.0.1:11434", fg_color=theme.CARD,
+                          corner_radius=theme.RADIUS_WIDGET, border_width=1, border_color=theme.STROKE)
         ep.insert(0, self.cfg.ollama_endpoint)
         ep.pack(fill="x", padx=14, pady=4)
-        self.ollama_model = ctk.CTkEntry(c1, placeholder_text="модель, напр. qwen2.5:3b", fg_color=theme.CARD)
+        self.ollama_model = ctk.CTkEntry(c1, placeholder_text="модель, напр. qwen2.5:3b",
+                                         fg_color=theme.CARD, corner_radius=theme.RADIUS_WIDGET,
+                                         border_width=1, border_color=theme.STROKE)
         self.ollama_model.insert(0, self.cfg.ollama_model)
         self.ollama_model.pack(fill="x", padx=14, pady=4)
         self.ollama_status = ctk.CTkLabel(c1, text="", font=_font(11), text_color=theme.MUTED, wraplength=460)
@@ -658,7 +678,8 @@ class WinDictooGUI:
 
             threading.Thread(target=work, daemon=True).start()
 
-        ctk.CTkButton(c1, text="Проверить", fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
+        ctk.CTkButton(c1, text="Проверить", corner_radius=theme.RADIUS_BUTTON,
+                      fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
                       command=check).pack(anchor="w", padx=14, pady=10)
 
     def _tab_privacy(self, tab) -> None:
@@ -681,7 +702,8 @@ class WinDictooGUI:
             ("Открыть папку настроек", self._open_config_dir),
         ]:
             ctk.CTkButton(c2, text=text, fg_color=theme.CARD, hover_color=theme.CARD_HI,
-                          text_color=theme.TEXT,
+                          text_color=theme.TEXT, corner_radius=theme.RADIUS_BUTTON,
+                          border_width=1, border_color=theme.STROKE,
                           anchor="w", command=cmd).pack(fill="x", padx=14, pady=4)
         ctk.CTkFrame(c2, height=6, fg_color="transparent").pack()
 
@@ -696,9 +718,11 @@ class WinDictooGUI:
                      justify="left").pack(anchor="w", padx=14, pady=(0, 8))
         ctk.CTkButton(c3, text="🌐 Открыть на GitHub", fg_color=theme.CARD,
                       hover_color=theme.CARD_HI, text_color=theme.TEXT,
+                      corner_radius=theme.RADIUS_BUTTON, border_width=1, border_color=theme.STROKE,
                       anchor="w", command=self._open_github).pack(fill="x", padx=14, pady=(0, 4))
         ctk.CTkButton(c3, text="🔄 Проверить обновления", fg_color=theme.CARD,
                       hover_color=theme.CARD_HI, text_color=theme.TEXT,
+                      corner_radius=theme.RADIUS_BUTTON, border_width=1, border_color=theme.STROKE,
                       anchor="w",
                       command=lambda: self.check_update_async(force=True)).pack(
             fill="x", padx=14, pady=(0, 4))
