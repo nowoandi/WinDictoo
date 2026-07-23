@@ -544,6 +544,25 @@ class WinDictooGUI:
         method.set("Печать в поле" if self.cfg.insertion_method == "type" else "Буфер (Ctrl+V)")
         method.pack(fill="x", padx=14, pady=(2, 12))
 
+        c_mic = self._card(tab, "Микрофон")
+        devices = input_devices()
+        mic_labels = ["Системный (по умолчанию)"] + [name for _, name in devices]
+        current_label = next(
+            (name for idx, name in devices if idx == self.cfg.input_device_index),
+            "Системный (по умолчанию)",
+        )
+        mic_var = ctk.StringVar(value=current_label)
+        ctk.CTkOptionMenu(c_mic, values=mic_labels, variable=mic_var, fg_color=theme.CARD,
+                          text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
+                          border_width=1, border_color=theme.STROKE,
+                          button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
+                          command=lambda v: self._set_input_device(v, devices)).pack(
+            fill="x", padx=14, pady=(2, 6))
+        ctk.CTkLabel(c_mic, text="Полезно, если в системе несколько микрофонов "
+                     "(например, встроенный в ноутбук и гарнитура).",
+                     font=_font(11), text_color=theme.MUTED, wraplength=460,
+                     justify="left").pack(anchor="w", padx=14, pady=(0, 12))
+
         c_theme = self._card(tab, "Тема оформления")
         th = ctk.CTkSegmentedButton(
             c_theme, values=["Тёмная", "Светло-зелёная"],
@@ -594,6 +613,18 @@ class WinDictooGUI:
                            command=self._set_threads)
         sl.set(self.cfg.threads)
         sl.pack(fill="x", padx=14, pady=(2, 12))
+
+        c3 = self._card(tab, "Память")
+        unload = ctk.CTkSwitch(
+            c3, text="Выгружать модель из ОЗУ при простое (>15 мин)", font=_font(12),
+            progress_color=theme.ACCENT,
+            command=lambda: self._set_unload_idle(unload.get()))
+        unload.select() if self.cfg.unload_model_idle_min else unload.deselect()
+        unload.pack(anchor="w", padx=14, pady=(2, 4))
+        ctk.CTkLabel(c3, text="Освобождает 0.5–3 ГБ памяти на слабых ПК; следующая "
+                     "диктовка после простоя снова платит цену загрузки модели.",
+                     font=_font(11), text_color=theme.MUTED, wraplength=460,
+                     justify="left").pack(anchor="w", padx=14, pady=(0, 12))
 
     def _tab_refinement(self, tab) -> None:
         c0 = self._card(tab, "Что это")
@@ -745,6 +776,15 @@ class WinDictooGUI:
 
     def _set_method(self, v: str) -> None:
         self.cfg.insertion_method = v
+        self.cfg.save()
+
+    def _set_input_device(self, label: str, devices: list[tuple[int, str]]) -> None:
+        idx = next((i for i, name in devices if name == label), None)
+        self.cfg.input_device_index = idx
+        self.cfg.save()
+
+    def _set_unload_idle(self, v: int) -> None:
+        self.cfg.unload_model_idle_min = 15 if v else 0
         self.cfg.save()
 
     def _set_autostart(self, sw) -> None:

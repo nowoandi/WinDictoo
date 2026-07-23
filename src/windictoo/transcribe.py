@@ -40,12 +40,14 @@ class Transcriber:
         self.cfg = cfg
         self._model = None
         self._lock = threading.Lock()
+        self._unload_timer: threading.Timer | None = None
 
     @property
     def is_loaded(self) -> bool:
         return self._model is not None
 
     def load(self):
+        self._cancel_unload_timer()
         with self._lock:
             if self._model is None:
                 from faster_whisper import WhisperModel
@@ -82,4 +84,31 @@ class Transcriber:
         text = normalize_whitespace(strip_artifacts(raw))
         detected = getattr(info, "language", None)
         log.info("transcribed %d chars (lang=%s)", len(text), detected)
+        self._schedule_unload()
         return text, detected
+
+    # ------------------------------------------------------------- idle unload
+
+    def _schedule_unload(self) -> None:
+        """Free the model (~0.5-3 GB depending on size) after N minutes of
+        no dictation, for users on low-RAM machines. Opt-in via
+        Config.unload_model_idle_min (0 = never); each new transcription
+        resets the timer via load()'s _cancel_unload_timer()."""
+        self._cancel_unload_timer()
+        minutes = self.cfg.unload_model_idle_min
+        if not minutes:
+            return
+        self._unload_timer = threading.Timer(minutes * 60, self._unload)
+        self._unload_timer.daemon = True
+        self._unload_timer.start()
+
+    def _cancel_unload_timer(self) -> None:
+        if self._unload_timer is not None:
+            self._unload_timer.cancel()
+            self._unload_timer = None
+
+    def _unload(self) -> None:
+        with self._lock:
+            if self._model is not None:
+                self._model = None
+                log.info("model unloaded after %d min idle", self.cfg.unload_model_idle_min)

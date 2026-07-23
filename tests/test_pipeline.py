@@ -237,6 +237,15 @@ def test_type_unicode_accepted_by_os():
     assert insert.type_unicode("") is True
 
 
+def test_type_unicode_paces_long_text():
+    """Above _PACE_THRESHOLD_CHARS, type_unicode batches SendInput calls
+    instead of one giant burst (some legacy Win32 controls drop keystrokes
+    otherwise) — must still report full success for a long dictation."""
+    from windictoo import insert
+
+    assert insert.type_unicode("Съешь ещё этих мягких французских булок, да выпей чаю. " * 6) is True
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(sys.platform != "win32", reason="SAPI is Windows-only")
 def test_transcribes_synthesized_russian_speech(tmp_path):

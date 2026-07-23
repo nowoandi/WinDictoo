@@ -194,6 +194,15 @@ user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(_INPUT), ctypes.c_int
 user32.SendInput.restype = wintypes.UINT
 
 
+# Above this many characters, type_unicode() paces itself in batches: some
+# legacy Win32 edit controls drop keystrokes when a very long SendInput burst
+# arrives all at once. Short dictations (the vast majority) stay a single
+# burst, so normal typing speed is unaffected.
+_PACE_THRESHOLD_CHARS = 80
+_BATCH_CHARS = 40
+_BATCH_PAUSE_SEC = 0.003
+
+
 def type_unicode(text: str) -> bool:
     """Type `text` into the focused control as Unicode key events.
 
@@ -213,8 +222,19 @@ def type_unicode(text: str) -> bool:
         up = events[i * 2 + 1]
         up.type = _INPUT_KEYBOARD
         up.ki = _KEYBDINPUT(0, code, _KEYEVENTF_UNICODE | _KEYEVENTF_KEYUP, 0, 0)
-    sent = user32.SendInput(len(events), events, ctypes.sizeof(_INPUT))
-    return sent == len(events)
+
+    if len(codes) <= _PACE_THRESHOLD_CHARS:
+        sent = user32.SendInput(len(events), events, ctypes.sizeof(_INPUT))
+        return sent == len(events)
+
+    batch_events = _BATCH_CHARS * 2
+    sent_total = 0
+    for start in range(0, len(events), batch_events):
+        chunk = events[start:start + batch_events]
+        batch = (_INPUT * len(chunk))(*chunk)
+        sent_total += user32.SendInput(len(batch), batch, ctypes.sizeof(_INPUT))
+        time.sleep(_BATCH_PAUSE_SEC)
+    return sent_total == len(events)
 
 
 def insert(
