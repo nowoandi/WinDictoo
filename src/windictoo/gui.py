@@ -554,7 +554,6 @@ class WinDictooGUI:
         mic_var = ctk.StringVar(value=current_label)
         ctk.CTkOptionMenu(c_mic, values=mic_labels, variable=mic_var, fg_color=theme.CARD,
                           text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
-                          border_width=1, border_color=theme.STROKE,
                           button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
                           command=lambda v: self._set_input_device(v, devices)).pack(
             fill="x", padx=14, pady=(2, 6))
@@ -586,7 +585,6 @@ class WinDictooGUI:
         # which vanishes on the white CARD background of the light theme.
         om = ctk.CTkOptionMenu(c1, values=MODELS, variable=mv, fg_color=theme.CARD,
                                text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
-                               border_width=1, border_color=theme.STROKE,
                                button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
                                command=lambda v: self._set_model(v))
         om.pack(fill="x", padx=14, pady=(2, 6))
@@ -602,7 +600,6 @@ class WinDictooGUI:
         ctk.CTkLabel(c2, text="Язык речи", font=_font(12), text_color=theme.TEXT).pack(anchor="w", padx=14)
         ctk.CTkOptionMenu(c2, values=[l[0] for l in LANGS], variable=lv, fg_color=theme.CARD,
                           text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
-                          border_width=1, border_color=theme.STROKE,
                           button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
                           command=lambda v: self._set_lang(v)).pack(fill="x", padx=14, pady=(2, 8))
         self.thr_lbl = ctk.CTkLabel(c2, text=f"Потоков CPU: {self.cfg.threads}", font=_font(12),
