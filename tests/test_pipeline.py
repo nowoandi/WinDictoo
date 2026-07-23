@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from windictoo import hotkey, refine
+from windictoo import hotkey, refine, update
 from windictoo.config import Config
 from windictoo.transcribe import Transcriber, normalize_whitespace, strip_artifacts
 
@@ -145,6 +145,28 @@ def test_refine_validate_rejects_bloat():
     ok, reason = refine.validate("да", "да " + "и ещё много выдуманного текста " * 20)
     assert ok is False
     assert "longer" in reason
+
+
+def test_update_is_newer():
+    assert update.is_newer("1.4.0", "1.3.0") is True
+    assert update.is_newer("v1.4.0", "1.3.0") is True  # tolerate a "v" prefix
+    assert update.is_newer("1.3.0", "1.3.0") is False
+    assert update.is_newer("1.2.9", "1.3.0") is False
+    assert update.is_newer("1.3.0", "1.3") is True  # missing patch counts as .0
+    assert update.is_newer("garbage", "1.3.0") is False  # never crash on a bad tag
+
+
+def test_update_check_never_raises_when_offline():
+    # Port 1 is not a routable API endpoint; this must fail closed (None),
+    # not raise — an update check must never be able to break startup.
+    from windictoo import update as update_module
+
+    original = update_module._API_URL
+    update_module._API_URL = "http://127.0.0.1:1/releases/latest"
+    try:
+        assert update.check_for_update("1.0.0") is None
+    finally:
+        update_module._API_URL = original
 
 
 # --- integration ------------------------------------------------------------

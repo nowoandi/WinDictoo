@@ -49,6 +49,10 @@ class Config:
     # UI theme: "light-green" (default) or "dark" (violet).
     ui_theme: str = "light-green"
 
+    # Set when the user dismisses an update banner ("Позже") so the same
+    # version doesn't nag again on every startup; cleared once they update.
+    skipped_update_version: str = ""
+
     @classmethod
     def load(cls) -> "Config":
         if CONFIG_PATH.exists():
