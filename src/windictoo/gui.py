@@ -134,7 +134,14 @@ class WinDictooGUI:
                       border_width=1, border_color=theme.STROKE,
                       font=_font(16), fg_color=theme.CARD, hover_color=theme.CARD_HI,
                       text_color=theme.TEXT, command=self._toggle_theme).pack(side="right", padx=(0, 8))
-        ctk.CTkLabel(header, text="WinDictoo", font=_font(24, "bold"), text_color=theme.TEXT).pack(side="left")
+        title_row = ctk.CTkFrame(header, fg_color="transparent")
+        title_row.pack(side="left")
+        ctk.CTkLabel(title_row, text="WinDictoo", font=_font(24, "bold"),
+                     text_color=theme.TEXT).pack(side="left")
+        from . import __version__
+
+        ctk.CTkLabel(title_row, text=f"v{__version__}", font=_font(10),
+                     text_color=theme.MUTED).pack(side="left", padx=(6, 0), pady=(10, 0))
 
         # Hero card. The mic is clickable — it starts/stops dictation.
         hero = ctk.CTkFrame(self.root, fg_color=theme.CARD, corner_radius=theme.RADIUS_CONTAINER,
@@ -485,7 +492,7 @@ class WinDictooGUI:
             return
         win = ctk.CTkToplevel(self.root)
         win.title("Настройки WinDictoo")
-        win.geometry("560x680")
+        win.geometry("560x830")
         win.configure(fg_color=theme.BG)
         win.transient(self.root)
         self.settings_win = win
@@ -497,20 +504,10 @@ class WinDictooGUI:
         tabs.pack(fill="both", expand=True, padx=16, pady=16)
         for name in ("Основные", "Распознавание", "Улучшение", "Приватность"):
             tabs.add(name)
-        self._tab_general(self._scrollable(tabs.tab("Основные")))
-        self._tab_transcription(self._scrollable(tabs.tab("Распознавание")))
-        self._tab_refinement(self._scrollable(tabs.tab("Улучшение")))
-        self._tab_privacy(self._scrollable(tabs.tab("Приватность")))
-
-    def _scrollable(self, tab: ctk.CTkFrame) -> ctk.CTkScrollableFrame:
-        """A tab's card stack can outgrow the fixed Settings window height
-        as options accumulate (already happened once: the Microphone card
-        pushed "Приложение" off the bottom of "Основные"). A scrollable
-        frame degrades to a scrollbar instead of silently clipping the last
-        card, regardless of how many cards a tab ends up with."""
-        frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
-        frame.pack(fill="both", expand=True)
-        return frame
+        self._tab_general(tabs.tab("Основные"))
+        self._tab_transcription(tabs.tab("Распознавание"))
+        self._tab_refinement(tabs.tab("Улучшение"))
+        self._tab_privacy(tabs.tab("Приватность"))
 
     def _card(self, parent, title: str) -> ctk.CTkFrame:
         outer = ctk.CTkFrame(parent, fg_color=theme.CARD_HI, corner_radius=theme.RADIUS_CARD,
