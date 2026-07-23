@@ -14,7 +14,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from . import autostart, insert as _insert, refine, theme
+from . import autostart, insert as _insert, refine, theme, update
 from .app import Dictation, State
 from .audio import input_devices
 from .config import CONFIG_DIR, LOG_PATH, Config
@@ -71,6 +71,8 @@ class WinDictooGUI:
         self.root.geometry(f"{W}x{H}+{x}+{y}")
         self.root.configure(fg_color=theme.BG)
 
+        self._update_banner: ctk.CTkButton | None = None
+        self._update_info: update.UpdateInfo | None = None
         self.settings_win: ctk.CTkToplevel | None = None
         self.overlay: tk.Toplevel | None = None
         self._ov_dot = None
@@ -135,6 +137,12 @@ class WinDictooGUI:
         # Hero card. The mic is clickable — it starts/stops dictation.
         hero = ctk.CTkFrame(self.root, fg_color=theme.CARD, corner_radius=22)
         hero.pack(fill="x", padx=20, pady=8)
+        self.hero_frame = hero
+        if self._update_info is not None:
+            # A theme switch destroys and rebuilds every widget; keep the
+            # banner alive across that rebuild instead of losing it silently.
+            self._update_banner = None
+            self._show_update_banner(self._update_info)
         self.mic = MicIndicator(hero, size=118, bg=theme.CARD)
         self.mic.pack(pady=(20, 4))
         self.mic.bind("<Button-1>", lambda e: self._toggle_dictation())
@@ -689,6 +697,14 @@ class WinDictooGUI:
         ctk.CTkButton(c3, text="🌐 Открыть на GitHub", fg_color=theme.CARD,
                       hover_color=theme.CARD_HI, text_color=theme.TEXT,
                       anchor="w", command=self._open_github).pack(fill="x", padx=14, pady=(0, 4))
+        ctk.CTkButton(c3, text="🔄 Проверить обновления", fg_color=theme.CARD,
+                      hover_color=theme.CARD_HI, text_color=theme.TEXT,
+                      anchor="w",
+                      command=lambda: self.check_update_async(force=True)).pack(
+            fill="x", padx=14, pady=(0, 4))
+        self.update_status_lbl = ctk.CTkLabel(c3, text="", font=_font(11),
+                                              text_color=theme.MUTED, wraplength=460)
+        self.update_status_lbl.pack(anchor="w", padx=14, pady=(0, 8))
         ctk.CTkFrame(c3, height=6, fg_color="transparent").pack()
 
     # ------------------------------------------------------------- setters
@@ -819,6 +835,144 @@ class WinDictooGUI:
         self._pull_btn.configure(text="Скопировано ✓  (вставьте в Терминал)")
         self.root.after(2500, lambda: self._pull_btn.configure(
             text="⧉ Скопировать команду модели"))
+
+    # --------------------------------------------------------------- updates
+
+    def check_update_async(self, force: bool = False) -> None:
+        """Look up github.com/nowoandi/WinDictoo's latest release in the
+        background. `force=True` (manual button in Settings) ignores a
+        previously dismissed version; the automatic startup check does not,
+        so the banner doesn't nag about the same release every launch."""
+        from . import __version__
+
+        def work() -> None:
+            info = update.check_for_update(__version__)
+            if info is None:
+                if force:
+                    self.root.after(0, lambda: self._set_update_status(
+                        "Обновлений нет — установлена последняя версия."))
+                return
+            if not force and info.version == self.cfg.skipped_update_version:
+                return
+            try:
+                self.root.after(0, lambda: self._show_update_banner(info))
+            except RuntimeError:
+                pass  # window already gone
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _set_update_status(self, text: str) -> None:
+        if getattr(self, "update_status_lbl", None) is not None:
+            try:
+                self.update_status_lbl.configure(text=text)
+            except tk.TclError:
+                pass
+
+    def _show_update_banner(self, info: update.UpdateInfo) -> None:
+        self._update_info = info
+        self._set_update_status(f"Доступна версия {info.version}.")
+        if self._update_banner is not None:
+            return
+        banner = ctk.CTkButton(
+            self.root, text=f"🔔  Доступна версия {info.version} — что нового",
+            fg_color=theme.ACCENT_DIM, hover_color=theme.ACCENT_DIM, text_color=theme.TEXT,
+            font=_font(12, "bold"), height=34, corner_radius=10,
+            command=self._open_update_dialog,
+        )
+        banner.pack(fill="x", padx=20, pady=(0, 6), before=self.hero_frame)
+        self._update_banner = banner
+
+    def _hide_update_banner(self) -> None:
+        if self._update_banner is not None:
+            try:
+                self._update_banner.destroy()
+            except tk.TclError:
+                pass
+            self._update_banner = None
+
+    def _open_update_dialog(self) -> None:
+        info = self._update_info
+        if info is None:
+            return
+        win = ctk.CTkToplevel(self.root)
+        win.title("Доступно обновление")
+        win.geometry("480x420")
+        win.configure(fg_color=theme.BG)
+        win.transient(self.root)
+
+        ctk.CTkLabel(win, text=f"WinDictoo {info.version}", font=_font(18, "bold"),
+                     text_color=theme.TEXT).pack(anchor="w", padx=20, pady=(20, 4))
+        ctk.CTkLabel(win, text="Что нового:", font=_font(12, "bold"),
+                     text_color=theme.MUTED).pack(anchor="w", padx=20)
+        box = ctk.CTkTextbox(win, font=_font(12), fg_color=theme.CARD,
+                             text_color=theme.TEXT, corner_radius=12, wrap="word")
+        box.pack(fill="both", expand=True, padx=20, pady=8)
+        box.insert("1.0", info.notes or "(без описания)")
+        box.configure(state="disabled")
+
+        status = ctk.CTkLabel(win, text="", font=_font(11), text_color=theme.MUTED)
+        status.pack(anchor="w", padx=20)
+
+        btns = ctk.CTkFrame(win, fg_color="transparent")
+        btns.pack(fill="x", padx=20, pady=(4, 20))
+
+        def later() -> None:
+            self.cfg.skipped_update_version = info.version
+            self.cfg.save()
+            self._hide_update_banner()
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+
+        def open_page() -> None:
+            import webbrowser
+
+            webbrowser.open(info.release_url)
+
+        install_btn = ctk.CTkButton(btns, text="⬇ Скачать и установить", fg_color=theme.ACCENT,
+                                    hover_color=theme.ACCENT_HOVER, font=_font(13, "bold"))
+        install_btn.pack(side="right")
+        ctk.CTkButton(btns, text="Страница релиза", fg_color=theme.CARD, hover_color=theme.CARD_HI,
+                      text_color=theme.TEXT, command=open_page).pack(side="right", padx=8)
+        ctk.CTkButton(btns, text="Позже", fg_color="transparent", hover_color=theme.CARD,
+                      text_color=theme.MUTED, command=later).pack(side="left")
+
+        def do_install() -> None:
+            install_btn.configure(state="disabled", text="Скачиваю…")
+            status.configure(text="")
+
+            def work() -> None:
+                import subprocess
+                import tempfile
+                from pathlib import Path
+
+                try:
+                    dest = Path(tempfile.gettempdir()) / f"WinDictoo-Setup-{info.version}.exe"
+                    update.download_installer(info.download_url, str(dest))
+                    subprocess.Popen([str(dest)], close_fds=True)  # noqa: S603
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("update download/launch failed")
+
+                    def fail() -> None:
+                        install_btn.configure(state="normal", text="⬇ Скачать и установить")
+                        status.configure(text=f"Не удалось: {exc}", text_color=theme.DANGER)
+
+                    try:
+                        self.root.after(0, fail)
+                    except RuntimeError:
+                        pass
+                    return
+                # The installer closes us via CloseApplications=yes; quitting
+                # ourselves right away avoids racing that shutdown.
+                try:
+                    self.root.after(300, self.quit)
+                except RuntimeError:
+                    pass
+
+            threading.Thread(target=work, daemon=True).start()
+
+        install_btn.configure(command=do_install)
 
     # ---------------------------------------------------------------- helpers
 
