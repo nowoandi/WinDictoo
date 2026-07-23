@@ -50,6 +50,13 @@ APPEARANCE = "dark"
 STATE_COLOR: dict[State, str] = {}
 name = "dark"
 
+# Corner radius design tokens for consistent UI hierarchy
+RADIUS_CONTAINER = 16  # Hero cards, main result card, onboarding main card
+RADIUS_CARD = 12       # Secondary section cards, tabview, floating overlay
+RADIUS_WIDGET = 10     # Text box, option menus, text fields, inputs
+RADIUS_BUTTON = 12     # Action buttons (Start/Stop, Copy, Hotkey, dialog buttons)
+RADIUS_CHIP = 10       # Information status chips
+
 
 def apply(theme_name: str) -> str:
     """Set the module-level colours to the chosen palette; returns its name."""

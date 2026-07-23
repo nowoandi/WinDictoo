@@ -56,21 +56,24 @@ class Onboarding:
             d.pack(side="left", padx=3)
             self._dot_lbls.append(d)
 
-        self.card = ctk.CTkFrame(self.win, fg_color=theme.CARD, corner_radius=20)
+        self.card = ctk.CTkFrame(self.win, fg_color=theme.CARD,
+                                 corner_radius=theme.RADIUS_CONTAINER,
+                                 border_width=1, border_color=theme.STROKE)
         self.card.pack(fill="both", expand=True, padx=24, pady=16)
 
         nav = ctk.CTkFrame(self.win, fg_color="transparent")
         nav.pack(fill="x", padx=24, pady=(0, 18))
         self.back_btn = ctk.CTkButton(nav, text="Назад", width=90, fg_color=theme.CARD,
-                                      hover_color=theme.CARD_HI, text_color=theme.TEXT,
-                                      command=self._back)
+                                       hover_color=theme.CARD_HI, text_color=theme.TEXT,
+                                       corner_radius=theme.RADIUS_BUTTON, border_width=1,
+                                       border_color=theme.STROKE, command=self._back)
         self.back_btn.pack(side="left")
         ctk.CTkButton(nav, text="Пропустить", width=110, fg_color="transparent",
                       hover_color=theme.CARD, text_color=theme.MUTED,
-                      command=self._skip_all).pack(side="left", padx=8)
+                      corner_radius=theme.RADIUS_BUTTON, command=self._skip_all).pack(side="left", padx=8)
         self.next_btn = ctk.CTkButton(nav, text="Далее", width=150, fg_color=theme.ACCENT,
-                                      hover_color=theme.ACCENT_HOVER, font=_font(14, "bold"),
-                                      command=self._next)
+                                       hover_color=theme.ACCENT_HOVER, font=_font(14, "bold"),
+                                       corner_radius=theme.RADIUS_BUTTON, command=self._next)
         self.next_btn.pack(side="right")
 
         self._render()
@@ -150,7 +153,8 @@ class Onboarding:
         self._eq = Equalizer(self.card, width=400, height=54, bg=theme.CARD)
         self._eq.pack(pady=10)
         self._mic_btn = ctk.CTkButton(self.card, text="🎤  Проверить микрофон", fg_color=theme.ACCENT,
-                                      hover_color=theme.ACCENT_HOVER, command=self._toggle_probe)
+                                      hover_color=theme.ACCENT_HOVER, corner_radius=theme.RADIUS_BUTTON,
+                                      command=self._toggle_probe)
         self._mic_btn.pack(pady=4)
         self._text("Скажите что-нибудь — полоски должны двигаться. Если нет — проверьте\n"
                    "Параметры Windows → Конфиденциальность → Микрофон.")
@@ -166,13 +170,15 @@ class Onboarding:
         self._model_status = ctk.CTkLabel(self.card, text="", font=_font(12), text_color=theme.SUCCESS)
         self._model_status.pack(anchor="w", padx=32, pady=6)
         ctk.CTkButton(self.card, text="Загрузить сейчас", fg_color=theme.ACCENT,
-                      hover_color=theme.ACCENT_HOVER, command=self._download_model).pack(anchor="w", padx=32)
+                      hover_color=theme.ACCENT_HOVER, corner_radius=theme.RADIUS_BUTTON,
+                      command=self._download_model).pack(anchor="w", padx=32)
 
     def _step_hotkey(self) -> None:
         self._title("⌨", "Горячая клавиша")
         self._text(f"Сейчас: {describe(self.cfg.hotkey)}. Удерживайте её во время диктовки.")
         self._hk_btn = ctk.CTkButton(self.card, text=describe(self.cfg.hotkey), fg_color=theme.ACCENT,
-                                     hover_color=theme.ACCENT_HOVER, width=200, command=self._capture_hotkey)
+                                     hover_color=theme.ACCENT_HOVER, width=200,
+                                     corner_radius=theme.RADIUS_BUTTON, command=self._capture_hotkey)
         self._hk_btn.pack(padx=32, pady=12)
         self._hk_err = ctk.CTkLabel(self.card, text="", font=_font(11), text_color=theme.DANGER)
         self._hk_err.pack(anchor="w", padx=32)
@@ -182,12 +188,15 @@ class Onboarding:
         self._title("🎤", "Проверка диктовки")
         self._text("Нажмите, скажите пару фраз, остановите. Текст появится ниже —\nникуда не вставляется.")
         self._test_btn = ctk.CTkButton(self.card, text="🎤  Начать запись", fg_color=theme.ACCENT,
-                                       hover_color=theme.ACCENT_HOVER, command=self._toggle_test)
+                                       hover_color=theme.ACCENT_HOVER, corner_radius=theme.RADIUS_BUTTON,
+                                       command=self._toggle_test)
         self._test_btn.pack(padx=32, pady=8)
         self._test_state = ctk.CTkLabel(self.card, text="", font=_font(12), text_color=theme.MUTED)
         self._test_state.pack(anchor="w", padx=32)
         self._test_box = ctk.CTkTextbox(self.card, font=_font(13), fg_color=theme.CARD_HI,
-                                        text_color=theme.TEXT, corner_radius=12, height=90, wrap="word")
+                                        text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
+                                        border_width=1, border_color=theme.STROKE,
+                                        height=90, wrap="word")
         self._test_box.pack(fill="x", padx=28, pady=8)
 
     def _step_done(self) -> None:
