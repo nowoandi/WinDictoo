@@ -492,7 +492,7 @@ class WinDictooGUI:
             return
         win = ctk.CTkToplevel(self.root)
         win.title("Настройки WinDictoo")
-        win.geometry("560x830")
+        win.geometry("560x720")
         win.configure(fg_color=theme.BG)
         win.transient(self.root)
         self.settings_win = win
