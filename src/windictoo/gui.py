@@ -497,10 +497,20 @@ class WinDictooGUI:
         tabs.pack(fill="both", expand=True, padx=16, pady=16)
         for name in ("Основные", "Распознавание", "Улучшение", "Приватность"):
             tabs.add(name)
-        self._tab_general(tabs.tab("Основные"))
-        self._tab_transcription(tabs.tab("Распознавание"))
-        self._tab_refinement(tabs.tab("Улучшение"))
-        self._tab_privacy(tabs.tab("Приватность"))
+        self._tab_general(self._scrollable(tabs.tab("Основные")))
+        self._tab_transcription(self._scrollable(tabs.tab("Распознавание")))
+        self._tab_refinement(self._scrollable(tabs.tab("Улучшение")))
+        self._tab_privacy(self._scrollable(tabs.tab("Приватность")))
+
+    def _scrollable(self, tab: ctk.CTkFrame) -> ctk.CTkScrollableFrame:
+        """A tab's card stack can outgrow the fixed Settings window height
+        as options accumulate (already happened once: the Microphone card
+        pushed "Приложение" off the bottom of "Основные"). A scrollable
+        frame degrades to a scrollbar instead of silently clipping the last
+        card, regardless of how many cards a tab ends up with."""
+        frame = ctk.CTkScrollableFrame(tab, fg_color="transparent")
+        frame.pack(fill="both", expand=True)
+        return frame
 
     def _card(self, parent, title: str) -> ctk.CTkFrame:
         outer = ctk.CTkFrame(parent, fg_color=theme.CARD_HI, corner_radius=theme.RADIUS_CARD,
