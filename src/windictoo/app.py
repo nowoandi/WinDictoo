@@ -81,8 +81,12 @@ class Dictation:
             self._set_state(State.TRANSCRIBING)
         try:
             audio = self.recorder.stop()
-        except EmptyRecording:
-            self._set_state(State.ERROR, "Запись пуста или слишком короткая")
+        except EmptyRecording as exc:
+            if exc.reason == "silent":
+                msg = "Микрофон не улавливает звук — проверьте, что он включён, не заглушен и выбран верный в Настройках → Микрофон"
+            else:
+                msg = "Запись слишком короткая — удерживайте клавишу дольше"
+            self._set_state(State.ERROR, msg)
             self._reset_later()
             return
         except Exception as exc:  # noqa: BLE001

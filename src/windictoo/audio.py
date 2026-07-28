@@ -17,7 +17,17 @@ MIN_PEAK = 0.005
 
 
 class EmptyRecording(Exception):
-    """Recording was too short or effectively silent."""
+    """Recording was too short or effectively silent.
+
+    `reason` tells the caller which — "short" (held the hotkey too briefly)
+    and "silent" (held it plenty long, but the mic delivered nothing) are
+    different problems needing different advice, and users have reported
+    long, evidently-silent recordings being reported as merely "too short".
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 def _preferred_input_device() -> int | None:
@@ -124,11 +134,20 @@ class Recorder:
         """Return captured audio, or raise EmptyRecording."""
         audio = self._teardown()
         duration = len(audio) / SAMPLE_RATE
-        if duration < MIN_DURATION or self._peak < MIN_PEAK:
+        if duration < MIN_DURATION:
             log.info(
-                "recording rejected as empty (%.2fs, peak %.3f)", duration, self._peak
+                "recording rejected as too short (%.2fs, peak %.3f)", duration, self._peak
             )
-            raise EmptyRecording
+            raise EmptyRecording("short")
+        if self._peak < MIN_PEAK:
+            # Long enough to be a real attempt, but not a whisper of signal —
+            # this is "the microphone isn't picking anything up", not "you
+            # let go too fast". Conflating the two produced a confusing
+            # "recording too short" message after a 78-second silent hold.
+            log.info(
+                "recording rejected as silent (%.2fs, peak %.3f)", duration, self._peak
+            )
+            raise EmptyRecording("silent")
         log.info("recording stopped (%.2fs)", duration)
         return audio
 

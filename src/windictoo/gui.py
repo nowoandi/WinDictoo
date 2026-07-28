@@ -14,7 +14,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from . import autostart, insert as _insert, refine, theme, update
+from . import autostart, insert as _insert, oldversions, refine, theme, update
 from .app import Dictation, State
 from .audio import input_devices
 from .config import CONFIG_DIR, LOG_PATH, Config
@@ -73,6 +73,8 @@ class WinDictooGUI:
 
         self._update_banner: ctk.CTkButton | None = None
         self._update_info: update.UpdateInfo | None = None
+        self._oldversions_banner: ctk.CTkButton | None = None
+        self._oldversions_found: list[tuple[str, str, str]] = []
         self.settings_win: ctk.CTkToplevel | None = None
         self.overlay: tk.Toplevel | None = None
         self._ov_dot = None
@@ -153,6 +155,9 @@ class WinDictooGUI:
             # banner alive across that rebuild instead of losing it silently.
             self._update_banner = None
             self._show_update_banner(self._update_info)
+        if self._oldversions_found:
+            self._oldversions_banner = None
+            self._show_oldversions_banner()
         self.mic = MicIndicator(hero, size=118, bg=theme.CARD)
         self.mic.pack(pady=(20, 4))
         self.mic.bind("<Button-1>", lambda e: self._toggle_dictation())
@@ -1041,6 +1046,106 @@ class WinDictooGUI:
             threading.Thread(target=work, daemon=True).start()
 
         install_btn.configure(command=do_install)
+
+    # ----------------------------------------------------------- old installs
+
+    def check_old_installs_async(self) -> None:
+        """Renaming across VoxWin -> WnDic -> WinDictoo deliberately gave
+        each name its own Inno Setup AppId, so a machine upgraded across
+        renames (rather than freshly installed) ends up with leftover
+        Start Menu entries and installed copies nobody asked for."""
+
+        def work() -> None:
+            found = oldversions.find_old_installs()
+            if not found:
+                return
+            try:
+                self.root.after(0, lambda: self._show_oldversions_banner(found))
+            except RuntimeError:
+                pass  # window already gone
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_oldversions_banner(self, found: list[tuple[str, str, str]] | None = None) -> None:
+        if found is not None:
+            self._oldversions_found = found
+        if not self._oldversions_found or self._oldversions_banner is not None:
+            return
+        names = ", ".join(name for name, _, _ in self._oldversions_found)
+        banner = ctk.CTkButton(
+            self.root, text=f"🧹  Найдены старые версии ({names}) — очистить?",
+            fg_color=theme.ACCENT_DIM, hover_color=theme.ACCENT_DIM, text_color=theme.TEXT,
+            font=_font(12, "bold"), height=34, corner_radius=10,
+            command=self._open_oldversions_dialog,
+        )
+        banner.pack(fill="x", padx=20, pady=(0, 6), before=self.hero_frame)
+        self._oldversions_banner = banner
+
+    def _hide_oldversions_banner(self) -> None:
+        self._oldversions_found = []
+        if self._oldversions_banner is not None:
+            try:
+                self._oldversions_banner.destroy()
+            except tk.TclError:
+                pass
+            self._oldversions_banner = None
+
+    def _open_oldversions_dialog(self) -> None:
+        if not self._oldversions_found:
+            return
+        win = ctk.CTkToplevel(self.root)
+        win.title("Старые версии")
+        win.geometry("440x320")
+        win.configure(fg_color=theme.BG)
+        win.transient(self.root)
+
+        ctk.CTkLabel(win, text="Найдены более старые установки", font=_font(16, "bold"),
+                     text_color=theme.TEXT).pack(anchor="w", padx=20, pady=(20, 4))
+        ctk.CTkLabel(
+            win, text="WinDictoo раньше назывался иначе (VoxWin, WnDic). Их установки "
+            "остались отдельно от текущей — можно безопасно удалить.",
+            font=_font(12), text_color=theme.MUTED, wraplength=400, justify="left",
+        ).pack(anchor="w", padx=20, pady=(0, 12))
+
+        rows = ctk.CTkFrame(win, fg_color=theme.CARD, corner_radius=theme.RADIUS_CARD,
+                            border_width=1, border_color=theme.STROKE)
+        rows.pack(fill="x", padx=20)
+        for name, version, _ in self._oldversions_found:
+            ctk.CTkLabel(rows, text=f"{name}  v{version}", font=_font(13),
+                         text_color=theme.TEXT).pack(anchor="w", padx=14, pady=6)
+
+        status = ctk.CTkLabel(win, text="", font=_font(11), text_color=theme.MUTED,
+                              wraplength=400, justify="left")
+        status.pack(anchor="w", padx=20, pady=(10, 0))
+
+        btns = ctk.CTkFrame(win, fg_color="transparent")
+        btns.pack(fill="x", padx=20, pady=20, side="bottom")
+
+        def later() -> None:
+            self._hide_oldversions_banner()
+            try:
+                win.destroy()
+            except tk.TclError:
+                pass
+
+        def do_remove() -> None:
+            remove_btn.configure(state="disabled", text="Удаляю…")
+            ok = all(oldversions.uninstall(cmd) for _, _, cmd in self._oldversions_found)
+            status.configure(
+                text="Готово — старые ярлыки исчезнут через несколько секунд."
+                if ok else "Не всё получилось удалить — можно вручную через "
+                "«Установка и удаление программ».",
+                text_color=theme.SUCCESS if ok else theme.WARN,
+            )
+            self._hide_oldversions_banner()
+            win.after(2500, lambda: win.destroy() if win.winfo_exists() else None)
+
+        remove_btn = ctk.CTkButton(btns, text="🗑 Удалить старые версии", fg_color=theme.ACCENT,
+                                   hover_color=theme.ACCENT_HOVER, font=_font(13, "bold"),
+                                   command=do_remove)
+        remove_btn.pack(side="right")
+        ctk.CTkButton(btns, text="Позже", fg_color="transparent", hover_color=theme.CARD,
+                      text_color=theme.MUTED, command=later).pack(side="left")
 
     # ---------------------------------------------------------------- helpers
 

@@ -147,6 +147,25 @@ def test_refine_validate_rejects_bloat():
     assert "longer" in reason
 
 
+def test_split_uninstall_command():
+    from windictoo import oldversions
+
+    assert oldversions._split_uninstall_command(
+        r'"C:\Users\me\AppData\Local\Programs\VoxWin\unins000.exe"'
+    ) == [r"C:\Users\me\AppData\Local\Programs\VoxWin\unins000.exe"]
+    assert oldversions._split_uninstall_command(
+        r'"C:\Program Files\App\unins000.exe" /SILENT'
+    ) == [r"C:\Program Files\App\unins000.exe", "/SILENT"]
+
+
+def test_find_old_installs_never_raises():
+    from windictoo import oldversions
+
+    # This machine has no VoxWin/WnDic leftovers right now, but the real
+    # point is that a missing registry key must return [], never raise.
+    assert oldversions.find_old_installs() == []
+
+
 def test_update_is_newer():
     assert update.is_newer("1.4.0", "1.3.0") is True
     assert update.is_newer("v1.4.0", "1.3.0") is True  # tolerate a "v" prefix
