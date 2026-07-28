@@ -170,6 +170,7 @@ def main() -> int:
     # Update check is silent unless a newer release exists; never blocks
     # startup, never nags twice about a version the user already dismissed.
     gui.root.after(3000, gui.check_update_async)
+    gui.root.after(3500, gui.check_old_installs_async)
     if args.tray_only:
         gui.hide_to_tray()
 
