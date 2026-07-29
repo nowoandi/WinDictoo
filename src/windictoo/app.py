@@ -7,7 +7,7 @@ import logging
 import threading
 from collections.abc import Callable
 
-from . import insert, refine
+from . import i18n, insert, refine
 from .audio import EmptyRecording, Recorder
 from .config import Config
 from .transcribe import Transcriber
@@ -71,7 +71,7 @@ class Dictation:
             self.recorder.start(device=self.cfg.input_device_index)
         except Exception as exc:  # noqa: BLE001
             log.exception("could not start recording")
-            self._set_state(State.ERROR, f"Микрофон недоступен: {exc}")
+            self._set_state(State.ERROR, i18n.t("app.mic_unavailable", error=exc))
             self._reset_later()
 
     def stop_and_process(self) -> None:
@@ -83,9 +83,9 @@ class Dictation:
             audio = self.recorder.stop()
         except EmptyRecording as exc:
             if exc.reason == "silent":
-                msg = "Микрофон не улавливает звук — проверьте, что он включён, не заглушен и выбран верный в Настройках → Микрофон"
+                msg = i18n.t("app.mic_silent")
             else:
-                msg = "Запись слишком короткая — удерживайте клавишу дольше"
+                msg = i18n.t("app.too_short")
             self._set_state(State.ERROR, msg)
             self._reset_later()
             return
@@ -102,7 +102,7 @@ class Dictation:
             if self._cancelled.is_set():
                 return
             if not text:
-                self._set_state(State.ERROR, "Речь не распознана")
+                self._set_state(State.ERROR, i18n.t("app.no_speech"))
                 self._reset_later()
                 return
 
@@ -117,7 +117,7 @@ class Dictation:
                 if self._cancelled.is_set():
                     return
                 if fell_back:
-                    self.message = "Улучшение недоступно — вставлен исходный текст"
+                    self.message = i18n.t("app.refine_fallback")
 
             # A cancelled session must produce no side effects at all.
             if self._cancelled.is_set():
@@ -139,7 +139,7 @@ class Dictation:
             if status == "pasted":
                 self._set_state(State.DONE)
             else:
-                self._set_state(State.DONE, "Текст в буфере обмена — вставьте через Ctrl+V")
+                self._set_state(State.DONE, i18n.t("app.clipboard_paste_hint"))
             self._reset_later()
         except Exception as exc:  # noqa: BLE001
             log.exception("pipeline failed")

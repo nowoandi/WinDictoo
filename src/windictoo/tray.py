@@ -8,6 +8,7 @@ from collections.abc import Callable
 import pystray
 from PIL import Image, ImageDraw
 
+from . import i18n
 from .app import Dictation, State
 
 log = logging.getLogger(__name__)
@@ -21,17 +22,6 @@ _COLORS: dict[State, tuple[int, int, int]] = {
     State.DONE: (70, 180, 90),
     State.CANCELLED: (120, 120, 130),
     State.ERROR: (230, 150, 40),
-}
-
-_LABELS: dict[State, str] = {
-    State.IDLE: "Готов",
-    State.RECORDING: "Слушаю…",
-    State.TRANSCRIBING: "Распознавание…",
-    State.REFINING: "Улучшение…",
-    State.INSERTING: "Вставка…",
-    State.DONE: "Готово",
-    State.CANCELLED: "Отменено",
-    State.ERROR: "Ошибка",
 }
 
 
@@ -58,15 +48,16 @@ class Tray:
         self.icon = pystray.Icon(
             "windictoo",
             _icon(State.IDLE),
-            "WinDictoo — Готов",
+            f"WinDictoo — {i18n.tray_label(State.IDLE)}",
             menu=pystray.Menu(
-                pystray.MenuItem("Открыть WinDictoo", lambda: on_show(), default=True),
-                pystray.MenuItem(lambda _: f"Статус: {_LABELS[self.dictation.state]}", None, enabled=False),
+                pystray.MenuItem(lambda _: i18n.t("tray.open"), lambda: on_show(), default=True),
+                pystray.MenuItem(lambda _: i18n.t("tray.status", label=i18n.tray_label(self.dictation.state)),
+                                 None, enabled=False),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem("Отменить диктовку", lambda: self.dictation.cancel()),
-                pystray.MenuItem("Настройки", lambda: on_settings()),
+                pystray.MenuItem(lambda _: i18n.t("tray.cancel_dictation"), lambda: self.dictation.cancel()),
+                pystray.MenuItem(lambda _: i18n.t("tray.settings"), lambda: on_settings()),
                 pystray.Menu.SEPARATOR,
-                pystray.MenuItem("Выход", lambda: on_quit()),
+                pystray.MenuItem(lambda _: i18n.t("tray.quit"), lambda: on_quit()),
             ),
         )
         # Chain into any GUI state handler set later without clobbering it.
@@ -81,7 +72,7 @@ class Tray:
                 log.exception("chained state handler failed")
         try:
             self.icon.icon = _icon(state)
-            label = _LABELS.get(state, str(state))
+            label = i18n.tray_label(state)
             msg = self.dictation.message
             self.icon.title = f"WinDictoo — {label}" + (f": {msg}" if msg else "")
         except Exception:  # noqa: BLE001

@@ -67,6 +67,12 @@ class Config:
     language: str = field(default_factory=_detect_system_language)
     threads: int = 4
 
+    # Interface language (buttons/labels/dialogs) — deliberately independent
+    # from `language` above (which only controls what Whisper transcribes).
+    # Same system-locale default, but the two are separate settings so a
+    # dictation language change never silently changes the app's own text.
+    ui_language: str = field(default_factory=_detect_system_language)
+
     # 0 = keep the model in RAM forever (fastest repeat dictation); >0 =
     # unload it after that many idle minutes to free RAM on weaker PCs.
     unload_model_idle_min: int = 0

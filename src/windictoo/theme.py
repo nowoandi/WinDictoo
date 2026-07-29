@@ -148,17 +148,8 @@ def apply(theme_name: str) -> str:
 
 apply("dark")
 
-STATE_LABEL: dict[State, str] = {
-    State.IDLE: "Готов к диктовке",
-    State.RECORDING: "Слушаю…",
-    State.TRANSCRIBING: "Распознаю…",
-    State.REFINING: "Улучшаю текст…",
-    State.INSERTING: "Вставляю…",
-    State.DONE: "Готово",
-    State.CANCELLED: "Отменено",
-    State.ERROR: "Ошибка",
-}
-
+# Text labels for states live in windictoo.i18n (state_label/tray_label) so
+# they follow Config.ui_language; only the language-neutral glyphs stay here.
 STATE_GLYPH: dict[State, str] = {
     State.IDLE: "🎙",
     State.RECORDING: "🎙",
