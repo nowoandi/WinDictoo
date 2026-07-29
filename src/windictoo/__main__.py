@@ -11,6 +11,7 @@ import logging
 import sys
 import threading
 
+from . import i18n
 from .app import Dictation
 from .config import CONFIG_DIR, LOG_PATH, Config
 from .hotkey import HotkeyListener, describe
@@ -70,7 +71,7 @@ class HotkeyController:
             new.start()
         except Exception as exc:  # noqa: BLE001
             logging.getLogger("windictoo").warning("hotkey %s failed: %s", spec, exc)
-            return f"Не удалось назначить {describe(spec)}: {exc}"
+            return i18n.t("gen.hotkey_assign_failed", hotkey=describe(spec), error=exc)
         if old is not None:
             old.stop()
         self.listener = new

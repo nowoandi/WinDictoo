@@ -222,6 +222,42 @@ def test_config_language_default_factory_is_overridable():
     assert Config().language in {"en", "ru", "de", "fr", "es", "zh", "tr", "hy"}
 
 
+def test_config_ui_language_is_independent_of_language():
+    # The interface language and the speech-recognition language are
+    # deliberately separate settings — changing one must never move the other.
+    cfg = Config(language="ru", ui_language="en")
+    assert cfg.language == "ru"
+    assert cfg.ui_language == "en"
+    assert Config().ui_language in {"en", "ru", "de", "fr", "es", "zh", "tr", "hy"}
+
+
+def test_i18n_every_key_covers_all_eight_languages():
+    from windictoo import i18n
+
+    incomplete = {k: sorted(set(i18n.SUPPORTED) - v.keys()) for k, v in i18n.STRINGS.items()
+                  if set(v.keys()) != set(i18n.SUPPORTED)}
+    assert incomplete == {}, f"keys missing translations: {incomplete}"
+
+
+def test_i18n_t_formats_and_falls_back():
+    from windictoo import i18n
+
+    i18n.set_language("de")
+    assert i18n.t("common.later") == "Später"
+    assert i18n.t("common.error_with", error="boom") == "Fehler: boom"
+    assert i18n.t("no.such.key") == "no.such.key"  # never raises, never blank
+    i18n.set_language("ru")  # restore default for any test relying on it
+
+
+def test_i18n_state_and_tray_labels_cover_every_state():
+    from windictoo import i18n
+    from windictoo.app import State
+
+    for state in State:
+        assert i18n.state_label(state) != f"state.{state}"  # resolved, not a raw key
+        assert i18n.tray_label(state) != f"tray.{state}"
+
+
 # --- integration ------------------------------------------------------------
 
 PHRASE_RU = "Это проверка распознавания речи"
