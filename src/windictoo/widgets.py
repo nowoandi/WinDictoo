@@ -5,8 +5,29 @@ from __future__ import annotations
 import math
 import tkinter as tk
 
+from PIL import Image, ImageDraw, ImageTk
+
 from . import theme
 from .app import State
+
+# Plain tk.Canvas ovals/arcs have zero anti-aliasing (a bare rasterized
+# ellipse), which looks heavily pixelated at these sizes — worse under
+# Windows DPI scaling. Rendering at a higher resolution with PIL and
+# downsampling with a LANCZOS filter (supersampling) gives genuinely smooth
+# circles without pulling in a real vector-graphics dependency.
+_SUPERSAMPLE = 4
+
+
+def aa_image(width: int, height: int, bg: str, draw) -> ImageTk.PhotoImage:
+    """Render `draw(pil_draw, scale)` onto a supersampled canvas and return a
+    downsampled (anti-aliased) PhotoImage ready for Canvas.create_image.
+    The caller must keep the returned PhotoImage referenced (e.g. on an
+    instance attribute) — Tk drops images with no live Python reference."""
+    k = _SUPERSAMPLE
+    img = Image.new("RGB", (width * k, height * k), bg)
+    draw(ImageDraw.Draw(img), k)
+    img = img.resize((width, height), Image.LANCZOS)
+    return ImageTk.PhotoImage(img)
 
 
 class MicIndicator(tk.Canvas):
@@ -16,9 +37,11 @@ class MicIndicator(tk.Canvas):
     def __init__(self, master, size: int = 132, bg: str = theme.CARD) -> None:
         super().__init__(master, width=size, height=size, bg=bg, highlightthickness=0, bd=0)
         self._size = size
+        self._bg = bg
         self._state = State.IDLE
         self._pulse = 0.0
         self._pulsing = False
+        self._photo = None  # keep alive — Tk drops unreferenced PhotoImages
         self.render()
 
     def set_state(self, state: State) -> None:
@@ -38,28 +61,36 @@ class MicIndicator(tk.Canvas):
         self.after(40, self._animate)
 
     def render(self) -> None:
-        self.delete("all")
         s = self._size
         c = s / 2
         color = theme.STATE_COLOR.get(self._state, theme.ACCENT)
         # Outer soft halo (pulses while recording).
         base_r = s * 0.42
         halo = base_r + (math.sin(self._pulse) * 6 if self._pulsing else 0)
-        self._ring(c, halo, theme.ACCENT_DIM if self._state is State.IDLE else color, width=2, stipple_fill=True)
-        # Main disc.
+        ring_color = theme.ACCENT_DIM if self._state is State.IDLE else color
         r = s * 0.30
-        self.create_oval(c - r, c - r, c + r, c + r, fill=color, outline="")
+
+        def draw(d: ImageDraw.ImageDraw, k: int) -> None:
+            cc = c * k
+
+            def circle(radius: float, **kw) -> None:
+                rr = radius * k
+                d.ellipse([cc - rr, cc - rr, cc + rr, cc + rr], **kw)
+
+            circle(halo, outline=ring_color, width=max(1, round(2 * k)))
+            # inner faint stroke ring
+            circle(halo - 8, outline=theme.STROKE, width=max(1, round(k)))
+            # main disc
+            circle(r, fill=color)
+
+        self._photo = aa_image(s, s, self._bg, draw)
+        self.delete("all")
+        self.create_image(0, 0, anchor="nw", image=self._photo)
         # Glyph — must contrast with the disc, not just "white": bright
         # accent colours (e.g. geek-black's neon green) make white nearly
         # invisible, same problem as button text on an accent background.
         self.create_text(c, c, text=theme.STATE_GLYPH.get(self._state, "🎙"),
                          fill=theme.ON_ACCENT, font=("Segoe UI Emoji", int(s * 0.22)))
-
-    def _ring(self, c: float, r: float, color: str, width: int, stipple_fill: bool) -> None:
-        self.create_oval(c - r, c - r, c + r, c + r, outline=color, width=width)
-        # inner faint fill ring
-        r2 = r - 8
-        self.create_oval(c - r2, c - r2, c + r2, c + r2, outline=theme.STROKE, width=1)
 
 
 class Equalizer(tk.Canvas):
@@ -71,9 +102,11 @@ class Equalizer(tk.Canvas):
         self._width = width
         self._height = height
         self._n = bars
+        self._bg = bg
         self._level = 0.0
         self._phase = 0.0
         self._active = False
+        self._photo = None
         self.render()
 
     def set_active(self, active: bool) -> None:
@@ -88,10 +121,10 @@ class Equalizer(tk.Canvas):
         self.render()
 
     def render(self) -> None:
-        self.delete("all")
         gap = 3
         bw = (self._width - gap * (self._n - 1)) / self._n
         mid = self._height / 2
+        bars = []
         for i in range(self._n):
             # Bell-shaped envelope so centre bars are tallest.
             env = math.sin(math.pi * (i + 0.5) / self._n)
@@ -100,13 +133,15 @@ class Equalizer(tk.Canvas):
             x0 = i * (bw + gap)
             x1 = x0 + bw
             color = theme.ACCENT if self._level > 0.02 else theme.STROKE
-            self._rounded_bar(x0, mid - h / 2, x1, mid + h / 2, bw / 2, color)
+            r = min(bw / 2, h / 2)
+            bars.append((x0, mid - h / 2, x1, mid + h / 2, r, color))
 
-    def _rounded_bar(self, x0, y0, x1, y1, r, color) -> None:
-        r = min(r, (x1 - x0) / 2, (y1 - y0) / 2)
-        self.create_oval(x0, y0, x0 + 2 * r, y0 + 2 * r, fill=color, outline="")
-        self.create_oval(x1 - 2 * r, y1 - 2 * r, x1, y1, fill=color, outline="")
-        self.create_oval(x0, y1 - 2 * r, x0 + 2 * r, y1, fill=color, outline="")
-        self.create_oval(x1 - 2 * r, y0, x1, y0 + 2 * r, fill=color, outline="")
-        self.create_rectangle(x0 + r, y0, x1 - r, y1, fill=color, outline="")
-        self.create_rectangle(x0, y0 + r, x1, y1 - r, fill=color, outline="")
+        # One supersampled image for the whole row (not one per bar) — far
+        # cheaper than 27 separate PIL renders at the animation's frame rate.
+        def draw(d: ImageDraw.ImageDraw, k: int) -> None:
+            for x0, y0, x1, y1, r, color in bars:
+                d.rounded_rectangle([x0 * k, y0 * k, x1 * k, y1 * k], radius=max(1, r * k), fill=color)
+
+        self._photo = aa_image(self._width, self._height, self._bg, draw)
+        self.delete("all")
+        self.create_image(0, 0, anchor="nw", image=self._photo)

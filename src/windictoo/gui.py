@@ -20,7 +20,7 @@ from .audio import input_devices
 from .config import CONFIG_DIR, LOG_PATH, Config
 from .hotkey import describe
 from .transcribe import Transcriber
-from .widgets import Equalizer, MicIndicator
+from .widgets import Equalizer, MicIndicator, aa_image
 
 log = logging.getLogger(__name__)
 
@@ -93,10 +93,12 @@ class WinDictooGUI:
         self.settings_win: ctk.CTkToplevel | None = None
         self.overlay: tk.Toplevel | None = None
         self._ov_dot = None
+        self._ov_dot_photo = None
         self._ov_label = None
         self._ov_msg = None
         self._ov_eq = None
         self._ov_stop = None
+        self._ov_stop_photo = None
 
         # Log exceptions raised inside tk callbacks — a windowed .exe has no
         # console, so otherwise they would vanish silently.
@@ -226,8 +228,10 @@ class WinDictooGUI:
         # Quick recognition-language switch, right next to Copy — dictation
         # language is changed often enough (mid-session, multilingual users)
         # that burying it in Settings -> Распознавание was too many clicks.
-        self.lang_btn = ctk.CTkButton(rhead, text="文", width=32, height=28,
-                                      corner_radius=theme.RADIUS_WIDGET, font=_font(13, "bold"),
+        # Shows the current speech language as a short international code
+        # (EN/DE/FR/RU/...) so the button itself reflects the active choice.
+        self.lang_btn = ctk.CTkButton(rhead, text=self._lang_abbr(self.cfg.language), width=40, height=28,
+                                      corner_radius=theme.RADIUS_WIDGET, font=_font(11, "bold"),
                                       fg_color=theme.CARD_HI, hover_color=theme.STROKE,
                                       text_color=theme.ACCENT_HOVER, border_width=1,
                                       border_color=theme.STROKE,
@@ -342,7 +346,9 @@ class WinDictooGUI:
         self.overlay.lift()
         self._ov_dot.delete("all")
         col = theme.STATE_COLOR.get(state, theme.ACCENT)
-        self._ov_dot.create_oval(3, 3, 21, 21, fill=col, outline="")
+        self._ov_dot_photo = aa_image(24, 24, theme.CARD,
+                                      lambda d, k, col=col: d.ellipse([3 * k, 3 * k, 21 * k, 21 * k], fill=col))
+        self._ov_dot.create_image(0, 0, anchor="nw", image=self._ov_dot_photo)
         self._ov_label.configure(text=i18n.state_label(state))
         self._ov_msg.configure(text=self.dictation.message or self._default_sub(state))
         self._ov_eq.set_active(state is State.RECORDING)
@@ -440,11 +446,14 @@ class WinDictooGUI:
         c.delete("all")
         if self.dictation.state is State.RECORDING:
             col = theme.ACCENT_HOVER if hover else theme.ACCENT
-            c.create_oval(3, 3, 37, 37, fill=col, outline="")
-            c.create_text(20, 20, text="■", fill=theme.ON_ACCENT, font=("Segoe UI", 13))
+            glyph, gx, gy, gfont = "■", 20, 20, ("Segoe UI", 13)
         else:
-            c.create_oval(3, 3, 37, 37, fill=theme.SUCCESS, outline="")
-            c.create_text(21, 19, text="✓", fill=theme.ON_ACCENT, font=("Segoe UI", 16, "bold"))
+            col = theme.SUCCESS
+            glyph, gx, gy, gfont = "✓", 21, 19, ("Segoe UI", 16, "bold")
+        self._ov_stop_photo = aa_image(40, 40, theme.CARD,
+                                       lambda d, k, col=col: d.ellipse([3 * k, 3 * k, 37 * k, 37 * k], fill=col))
+        c.create_image(0, 0, anchor="nw", image=self._ov_stop_photo)
+        c.create_text(gx, gy, text=glyph, fill=theme.ON_ACCENT, font=gfont)
 
     def _ov_drag_start(self, e) -> None:
         self._ov_drag = (e.x_root, e.y_root, self.overlay.winfo_x(), self.overlay.winfo_y())
@@ -538,10 +547,18 @@ class WinDictooGUI:
         popup.bind("<FocusOut>", lambda _e: self._close_lang_popup())
         popup.focus_force()
 
+    @staticmethod
+    def _lang_abbr(code: str) -> str:
+        """Short international code shown on the quick-switch button itself
+        (EN/DE/FR/RU/...) — every LANGS code is already ISO 639-1 except the
+        special "auto" entry."""
+        return "AUTO" if code == "auto" else code.upper()
+
     def _pick_lang_from_popup(self, code: str) -> None:
         self._close_lang_popup()
         self.cfg.language = code
         self.cfg.save()
+        self.lang_btn.configure(text=self._lang_abbr(code))
         var = getattr(self, "_lang_option_var", None)
         if var is not None and self.settings_win is not None:
             label = next((l for l, c in LANGS if c == code), None)
@@ -642,11 +659,22 @@ class WinDictooGUI:
         win.configure(fg_color=theme.BG)
         win.transient(self.root)
         self.settings_win = win
+        # CTkTabview/CTkSegmentedButton only expose a single `text_color` for
+        # both states, so the selected tab (fg_color=ACCENT) keeps whatever
+        # text colour the unselected ones use — invisible on bright accents
+        # like geek-black's neon green. Recolour each tab button by hand
+        # instead: ON_ACCENT for the selected one, TEXT for the rest.
+        def _recolor_tabs() -> None:
+            current = tabs.get()
+            for name, btn in tabs._segmented_button._buttons_dict.items():
+                btn.configure(text_color=theme.ON_ACCENT if name == current else theme.TEXT)
+
         tabs = ctk.CTkTabview(win, fg_color=theme.CARD, segmented_button_fg_color=theme.CARD,
                               segmented_button_selected_color=theme.ACCENT,
                               segmented_button_selected_hover_color=theme.ACCENT_HOVER,
                               corner_radius=theme.RADIUS_CARD,
-                              border_width=1, border_color=theme.STROKE)
+                              border_width=1, border_color=theme.STROKE,
+                              command=_recolor_tabs)
         tabs.pack(fill="both", expand=True, padx=16, pady=16)
         t_general, t_recognition = i18n.t("tabs.general"), i18n.t("tabs.recognition")
         t_refinement, t_privacy = i18n.t("tabs.refinement"), i18n.t("tabs.privacy")
@@ -656,6 +684,7 @@ class WinDictooGUI:
         self._tab_transcription(tabs.tab(t_recognition))
         self._tab_refinement(tabs.tab(t_refinement))
         self._tab_privacy(tabs.tab(t_privacy))
+        _recolor_tabs()
 
     def _card(self, parent, title: str) -> ctk.CTkFrame:
         outer = ctk.CTkFrame(parent, fg_color=theme.CARD_HI, corner_radius=theme.RADIUS_CARD,
@@ -959,6 +988,7 @@ class WinDictooGUI:
     def _set_lang(self, label: str) -> None:
         self.cfg.language = next(l[1] for l in LANGS if l[0] == label)
         self.cfg.save()
+        self.lang_btn.configure(text=self._lang_abbr(self.cfg.language))
 
     def _set_threads(self, v: float) -> None:
         self.cfg.threads = int(round(v))
