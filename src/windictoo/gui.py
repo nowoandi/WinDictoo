@@ -200,14 +200,15 @@ class WinDictooGUI:
                                       text_color=theme.ACCENT_HOVER, border_width=1,
                                       border_color=theme.STROKE, command=self._copy_result)
         self.copy_btn.pack(side="right")
-        # Read-only but selectable, so Ctrl+C works (a disabled textbox can be
-        # neither selected nor copied).
+        # Editable: recognition isn't perfect, so letting the user fix a
+        # word or two before copying/reinserting beats forcing a redo of the
+        # whole dictation. undo=True gives Ctrl+Z a real edit to undo.
         self.result_box = ctk.CTkTextbox(self.result_card, font=_font(13), fg_color=theme.CARD_HI,
                                          text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
-                                         wrap="word", border_width=1, border_color=theme.STROKE, height=80)
+                                         wrap="word", border_width=1, border_color=theme.STROKE,
+                                         height=80, undo=True)
         self.result_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.result_box.insert("1.0", "Нажмите Старт или микрофон и продиктуйте…")
-        self.result_box.bind("<Key>", self._readonly_key)
 
     def _chip(self, parent, text: str) -> ctk.CTkLabel:
         f = ctk.CTkFrame(parent, fg_color=theme.CARD, corner_radius=theme.RADIUS_CHIP,
@@ -274,15 +275,7 @@ class WinDictooGUI:
     def _show_result(self, text: str) -> None:
         self.result_box.delete("1.0", "end")
         self.result_box.insert("1.0", text or "(пусто)")
-
-    # Allow selection, copy (Ctrl+C) and select-all (Ctrl+A); block edits.
-    def _readonly_key(self, event):
-        if event.state & 0x4:  # Control held → copy / select-all
-            return None
-        if event.keysym in ("Left", "Right", "Up", "Down", "Home", "End",
-                             "Prior", "Next", "Shift_L", "Shift_R"):
-            return None
-        return "break"
+        self.result_box.edit_reset()  # a fresh dictation isn't an "undo" of the last edit
 
     def _copy_result(self) -> None:
         text = self.result_box.get("1.0", "end").strip()

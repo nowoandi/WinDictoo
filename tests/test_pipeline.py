@@ -147,6 +147,23 @@ def test_refine_validate_rejects_bloat():
     assert "longer" in reason
 
 
+def test_audio_resample_preserves_duration_and_signal():
+    from windictoo import audio
+
+    # A 1-second 440 Hz tone captured at 48 kHz (WASAPI's typical native
+    # rate on this machine) must resample to ~16000 samples at 16 kHz
+    # without collapsing to silence.
+    t = np.linspace(0, 1.0, 48000, endpoint=False)
+    tone = np.sin(2 * np.pi * 440 * t).astype(np.float32)
+    resampled = audio._resample(tone, 48000, 16000)
+    assert abs(len(resampled) - 16000) <= 1
+    assert np.abs(resampled).max() > 0.5  # signal survived, not silence
+
+    # No-op when rates already match, and empty input never raises.
+    assert audio._resample(tone, 16000, 16000) is tone
+    assert audio._resample(np.zeros(0, dtype=np.float32), 48000, 16000).size == 0
+
+
 def test_split_uninstall_command():
     from windictoo import oldversions
 

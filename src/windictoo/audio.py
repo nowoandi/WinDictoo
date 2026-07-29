@@ -30,6 +30,19 @@ class EmptyRecording(Exception):
         self.reason = reason
 
 
+def _resample(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
+    """Linear-interpolation resample — not audiophile quality, but Whisper
+    doesn't need it, and this matches the resampling this project's own test
+    helpers already use for the same 16 kHz target."""
+    if from_rate == to_rate or audio.size == 0:
+        return audio
+    new_len = int(round(len(audio) / from_rate * to_rate))
+    if new_len <= 0:
+        return np.zeros(0, dtype=np.float32)
+    idx = np.linspace(0, len(audio) - 1, new_len)
+    return np.interp(idx, np.arange(len(audio)), audio).astype(np.float32)
+
+
 def _preferred_input_device() -> int | None:
     """Prefer the WASAPI host API's default input device over whatever
     PortAudio picks as the overall default — which on Windows is usually the
@@ -59,6 +72,7 @@ class Recorder:
         self._peak = 0.0
         self.level = 0.0
         self.is_recording = False
+        self._stream_rate = SAMPLE_RATE
 
     def _callback(self, indata, frames, time_info, status) -> None:
         if status:
@@ -98,15 +112,7 @@ class Recorder:
         last_exc: Exception | None = None
         for i, dev in enumerate(candidates):
             try:
-                self._stream = sd.InputStream(
-                    samplerate=SAMPLE_RATE,
-                    channels=1,
-                    dtype="float32",
-                    blocksize=1024,
-                    device=dev,
-                    callback=self._callback,
-                )
-                self._stream.start()
+                self._stream, self._stream_rate = self._open_stream(dev)
                 last_exc = None
                 break
             except Exception as exc:  # noqa: BLE001
@@ -115,7 +121,40 @@ class Recorder:
                     log.warning("input device %s failed (%s), trying next", dev, exc)
         if last_exc is not None:
             raise last_exc
-        log.info("recording started (device=%s)", dev)
+        log.info("recording started (device=%s, rate=%d)", dev, self._stream_rate)
+
+    def _open_stream(self, device: int | None) -> tuple[sd.InputStream, int]:
+        """Try `device` at our target 16 kHz first; WASAPI devices commonly
+        reject any rate but their own mix format ("Invalid sample rate"),
+        which was previously caught only to fall straight back to the
+        legacy MME host API — silently defeating the whole point of
+        preferring WASAPI (see _preferred_input_device) on every single
+        recording. Retrying at the device's own native rate keeps the
+        stream on WASAPI; _teardown() resamples the result back to 16 kHz."""
+        try:
+            stream = sd.InputStream(
+                samplerate=SAMPLE_RATE, channels=1, dtype="float32",
+                blocksize=1024, device=device, callback=self._callback,
+            )
+            stream.start()
+            return stream, SAMPLE_RATE
+        except Exception as exc:  # noqa: BLE001
+            native_rate = None
+            if device is not None:
+                try:
+                    native_rate = int(round(sd.query_devices(device)["default_samplerate"]))
+                except Exception:  # noqa: BLE001
+                    native_rate = None
+            if native_rate is None or native_rate == SAMPLE_RATE:
+                raise
+            log.info("device %s rejected %d Hz (%s); retrying at its native %d Hz",
+                      device, SAMPLE_RATE, exc, native_rate)
+            stream = sd.InputStream(
+                samplerate=native_rate, channels=1, dtype="float32",
+                blocksize=1024, device=device, callback=self._callback,
+            )
+            stream.start()
+            return stream, native_rate
 
     def _teardown(self) -> np.ndarray:
         with self._lock:
@@ -128,7 +167,8 @@ class Recorder:
             chunks = self._chunks
             self._chunks = []
             self.level = 0.0
-        return np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+        audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+        return _resample(audio, self._stream_rate, SAMPLE_RATE)
 
     def stop(self) -> np.ndarray:
         """Return captured audio, or raise EmptyRecording."""
