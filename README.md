@@ -1,172 +1,180 @@
 # WinDictoo
 
+🇬🇧 **English** | 🇷🇺 [Русский](README.ru.md)
+
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6)
 
-**Локальный голосовой ввод для Windows.** Зажми горячую клавишу, продиктуй,
-отпусти — распознанный текст вставится в активное поле. Речь не покидает
-компьютер.
+**Local voice dictation for Windows.** Hold a hotkey, speak, release —
+the recognized text is inserted into the focused field. Your voice never
+leaves the computer.
 
-Это Windows-переосмысление идеи [VoxLocal](https://github.com/romarayt/VoxLocal)
-(оригинал только для macOS): та же задача, но на Windows-стеке.
+This is a Windows-native reimagining of [VoxLocal](https://github.com/romarayt/VoxLocal)
+(the original is macOS-only): same idea, built on the Windows stack.
 
-![Главное окно WinDictoo](assets/screenshots/main-window.png)
+![WinDictoo main window](assets/screenshots/main-window-en.png)
 
-Несколько цветовых тем на выбор (значок в шапке окна) — тёмная, гик-чёрная,
-светло-зелёная, светло-синяя, альтроза, шоколад с золотом.
+Several color themes to choose from (the swatch in the header) — dark,
+geek-black, light-green, light-blue, dusty rose, chocolate & gold.
 
-## Что умеет
+## What it does
 
-- **Приложение в системном трее** с глобальной горячей клавишей — по умолчанию
-  **Ctrl + Space**: две клавиши, удобно одной рукой (Alt+Space занят системным
-  меню Windows и не используется):
-  - *удержание* (`hold`): запись, пока клавиши нажаты; распознавание после отпускания;
-  - *переключение* (`toggle`): нажал — начал, нажал ещё раз — остановил.
-- **Локальное распознавание** через
+- **System-tray app** with a global hotkey — **Ctrl + Space** by default:
+  two keys, comfortable to hold with one hand (Alt+Space is taken by the
+  Windows system menu and isn't used):
+  - *hold*: records while the keys are held; transcribes on release;
+  - *toggle*: press once to start, press again to stop.
+- **Local recognition** via
   [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2),
-  на CPU с int8-квантизацией. В списке языков — автоопределение, русский,
-  английский, немецкий, французский, испанский, китайский, турецкий и
-  армянский; список легко расширяется под любой язык, который понимает
-  Whisper. При первом запуске язык сам подставляется по языку системы
-  Windows — дальше можно свободно сменить в настройках.
-- **Необязательное улучшение текста** (пунктуация, регистр, слова-паразиты)
-  через **локальный Ollama**. Если он недоступен или вернул ерунду — вставляется
-  исходная расшифровка. Диктовка не ломается никогда.
-- **Вставка в любое приложение**: буфер обмена + синтетический Ctrl+V с
-  восстановлением прежнего содержимого буфера (если его тем временем не изменило
-  другое приложение).
-- `Esc` отменяет активную диктовку.
+  CPU-only with int8 quantization. The language list includes auto-detect,
+  Russian, English, German, French, Spanish, Chinese, Turkish, and Armenian;
+  the list is easy to extend to any language Whisper understands. On first
+  run the language defaults to the Windows system language — change it
+  freely afterwards in Settings, or with the quick-switch button right in
+  the main window (see "Settings" below).
+- **Optional text refinement** (punctuation, casing, filler words) via a
+  **local Ollama** instance. If it's unavailable or returns nonsense, the
+  raw transcript is used instead — dictation never breaks.
+- **Insertion into any application**: clipboard + synthetic Ctrl+V, with the
+  previous clipboard contents restored afterwards (unless another app
+  changed them in the meantime).
+- `Esc` cancels an active dictation.
 
-## Модель приватности
+## Privacy model
 
-- Звук пишется в оперативную память, распознаётся локально и **нигде не
-  сохраняется** — временных WAV-файлов на диске нет.
-- **Без облачных API, ключей и аккаунтов.** Единственный сетевой запрос —
-  однократная загрузка модели Whisper с Hugging Face при первом запуске.
-- Ollama работает только по loopback-адресу (`127.0.0.1` / `localhost` / `::1`);
-  внешние адреса отклоняются, HTTP-редиректы запрещены.
-- **Нет аналитики, телеметрии и трекинга.**
-- В журнале нет аудио, текстов диктовок и содержимого буфера обмена.
+- Audio is captured into RAM, recognized locally, and **never saved
+  anywhere** — no temporary WAV files touch disk.
+- **No cloud APIs, keys, or accounts.** The only network request is a
+  one-time download of the Whisper model from Hugging Face on first run.
+- Ollama is only ever contacted over loopback (`127.0.0.1` / `localhost` /
+  `::1`); external addresses are rejected and HTTP redirects are refused.
+- **No analytics, telemetry, or tracking.**
+- The log never contains audio, dictation text, or clipboard contents.
 
-## Требования
+## Requirements
 
 - Windows 10/11, Python 3.13+, [uv](https://docs.astral.sh/uv/).
-- ~500 МБ на модель `small` (скачивается автоматически при первом запуске).
-- Опционально: [Ollama](https://ollama.com) с instruct-моделью
-  (например, `ollama pull qwen2.5:3b`).
+- ~500 MB for the `small` model (downloaded automatically on first run).
+- Optional: [Ollama](https://ollama.com) with an instruct model (e.g.
+  `ollama pull qwen2.5:3b`).
 
-## Запуск
+## Running it
 
-WinDictoo — обычное оконное приложение. После установки запускается **двойным
-кликом** по ярлыку **WinDictoo** на рабочем столе или в меню Пуск — открывается
-окно с состоянием, кнопкой проверки и настройками. Консоль не нужна.
+WinDictoo is an ordinary windowed application. After installing, launch it
+by **double-clicking** the **WinDictoo** shortcut on the desktop or in the
+Start menu — a window opens with status, a test button, and settings. No
+console required.
 
-Первый запуск: зажми **Ctrl + Space**, продиктуй, отпусти — текст
-вставится в активное поле. Окно можно свернуть в трей (значок микрофона);
-из трея — открыть снова, настройки или выход.
+First run: hold **Ctrl + Space**, speak, release — the text lands in the
+focused field. The window can be minimized to the tray (the mic icon); from
+the tray you can reopen it, open settings, or quit.
 
-## Сборка программы (.exe)
+## Building the app (.exe)
 
-Готовый `dist\WinDictoo\WinDictoo.exe` — самодостаточный (Whisper внутри, ~260 МБ).
-Пересобрать с нуля:
+The prebuilt `dist\WinDictoo\WinDictoo.exe` is self-contained (Whisper
+included, ~260 MB). To rebuild from scratch:
 
 ```powershell
-uv sync                                                   # зависимости
-uv run python packaging/make_icon.py                      # иконка
+uv sync                                                   # dependencies
+uv run python packaging/make_icon.py                      # icon
 uv run pyinstaller packaging/WinDictoo.spec --noconfirm --distpath dist --workpath build
-powershell -ExecutionPolicy Bypass -File packaging/install_shortcuts.ps1  # ярлыки
+powershell -ExecutionPolicy Bypass -File packaging/install_shortcuts.ps1  # shortcuts
 ```
 
-Первое распознавание скачает модель Whisper (~500 МБ) в
+The first transcription downloads the Whisper model (~500 MB) to
 `%LOCALAPPDATA%\WinDictoo\models`.
 
-### Запуск из исходников (для разработки)
+### Running from source (for development)
 
 ```powershell
-uv run windictoo          # с консолью и логами
-uv run windictoo -v       # подробный лог
+uv run windictoo          # with a console and logs
+uv run windictoo -v       # verbose logging
 ```
 
-## Первый запуск
+## First run
 
-При первом старте открывается **мастер настройки**: приветствие → проверка
-микрофона (с индикатором уровня) → выбор и загрузка модели → горячая клавиша →
-пробная диктовка → готово. Повторно открыть его можно в
-**Настройки → Конфиденциальность → «Показать мастер настройки снова»**.
+On first launch a **setup wizard** opens: welcome → microphone check (with
+a level indicator) → model selection and download → hotkey → test
+dictation → done. You can reopen it any time from **Settings → Privacy →
+"Show the setup wizard again"**.
 
-## Как это работает
+## How it works
 
-- **Реальная вставка** — по горячей клавише: ставите курсор в поле (Word,
-  браузер, чат), зажимаете **Ctrl + Space**, говорите, отпускаете —
-  текст печатается туда, где стоял курсор. Окно WinDictoo при этом может быть
-  свёрнуто в трей.
-- Кнопка **🎤 Проверить** в окне только **показывает** распознанный текст в самом
-  окне (для проверки микрофона и модели) — она ничего не вставляет.
+- **Real insertion** — via the hotkey: place the cursor in a field (Word, a
+  browser, a chat app), hold **Ctrl + Space**, speak, release — the text is
+  typed right where the cursor was. The WinDictoo window itself can be
+  minimized to the tray while this happens.
+- The **🎤 Test** button in the window only **shows** the recognized text in
+  the window itself (to check the microphone and model) — it never
+  inserts anything.
 
-## Настройки
+## Settings
 
-Интерфейс — тёмная тема на CustomTkinter: круглый индикатор микрофона с
-анимированным эквалайзером уровня, скруглённые карточки и акцентные кнопки.
+The interface uses CustomTkinter: a round mic indicator with an animated
+level equalizer, rounded cards, and accent buttons.
 
-Кнопка **⋮** в окне открывает вкладки:
+The **⋮** button in the window opens the tabs:
 
-- **Основные** — горячая клавиша (захват нажатием), режим удержание/переключение,
-  перехват клавиши, способ вставки (печать в поле / буфер+Ctrl+V), автозапуск,
-  тема оформления, **язык интерфейса**.
-- **Распознавание** — модель Whisper, язык речи, число потоков CPU, кнопка
-  «Загрузить модель сейчас».
+- **General** — hotkey (capture by pressing it), hold/toggle mode, key
+  suppression, insertion method (type into field / clipboard+Ctrl+V),
+  autostart, color theme, **interface language**.
+- **Recognition** — Whisper model, speech language, CPU thread count, a
+  "Load model now" button.
+- **Refinement** — enabling Ollama, its address, model, a "Check" button.
+- **Privacy** — what and how data is handled, the log, the setup wizard,
+  about.
 
-Язык интерфейса и язык распознавания речи — независимые настройки: первый
-меняет текст самого приложения (кнопки, вкладки, диалоги — на 8 языках:
-ru/en/de/fr/es/zh/tr/hy), второй — только на каком языке Whisper распознаёт
-речь. Быстро сменить язык распознавания можно и без захода в настройки —
-кнопкой **文** рядом с «Копировать» над распознанным текстом.
-- **Улучшение** — включение Ollama, адрес, модель, кнопка «Проверить».
-- **Приватность** — что и как обрабатывается, журнал, мастер настройки, о программе.
+Interface language and speech-recognition language are independent
+settings: the former changes the app's own text (buttons, tabs, dialogs —
+across 8 languages: ru/en/de/fr/es/zh/tr/hy), the latter only changes what
+language Whisper listens for. The recognition language can also be switched
+quickly without opening Settings at all — via the language-code button
+(**EN**/**RU**/…) next to "Copy" above the recognized text.
 
-Способ вставки по умолчанию — **печать в активное поле** (`SendInput`, не трогает
-буфер обмена). Если приложение её не принимает, переключитесь на **буфер+Ctrl+V**.
+The default insertion method is **typing into the focused field**
+(`SendInput`, doesn't touch the clipboard). If an application doesn't
+accept it, switch to **clipboard+Ctrl+V**.
 
-Клавиша хоткея **перехватывается** и не доходит до приложения, поэтому Пробел в
-`Ctrl+Space` не двигает курсор и не печатает пробелы, пока вы диктуете. Если
-это где-то мешает, снимите галочку «Не пропускать клавишу в приложение» в
-Настройки → Общие.
+The hotkey's main key is **suppressed** and never reaches the focused app,
+so Space in `Ctrl+Space` doesn't move the caret or type spaces while you're
+dictating. If that gets in the way somewhere, uncheck "Don't pass the key
+to the app" in Settings → General.
 
-Изменения применяются сразу. Всё хранится в
-`%LOCALAPPDATA%\WinDictoo\config.json` (можно править и вручную).
+Changes apply immediately. Everything is stored in
+`%LOCALAPPDATA%\WinDictoo\config.json` (which can be hand-edited too).
 
-## Модели Whisper
+## Whisper models
 
-| Модель | Размер | Скорость / качество |
+| Model | Size | Speed / quality |
 |---|---|---|
-| `tiny` | ~75 МБ | самая быстрая, черновое качество |
-| `base` | ~145 МБ | быстрая |
-| `small` | ~485 МБ | **рекомендуется** (баланс) |
-| `medium` | ~1.5 ГБ | медленнее, точнее |
-| `large-v3` | ~3 ГБ | самая точная, тяжёлая для CPU |
+| `tiny` | ~75 MB | fastest, rough quality |
+| `base` | ~145 MB | fast |
+| `small` | ~485 MB | **recommended** (balanced) |
+| `medium` | ~1.5 GB | slower, more accurate |
+| `large-v3` | ~3 GB | most accurate, heavy on CPU |
 
-Для i5 без дискретной видеокарты `small` на `int8` — оптимум.
+For an i5 with no discrete GPU, `small` at `int8` is the sweet spot.
 
-## Разработка
+## Development
 
 ```powershell
-uv run pytest -m "not integration"   # быстрые юнит-тесты
-uv run pytest -m integration         # реальный прогон Whisper на синтезе речи
-uv run python tests/smoke_launch.py  # headless-проверка трея, хоткея и сессии
-uv run python tests/smoke_type.py    # печать текста в поле (нужен интерактивный стол)
+uv run pytest -m "not integration"   # fast unit tests
+uv run pytest -m integration         # real Whisper run against synthesized speech
+uv run python tests/smoke_launch.py  # headless check of tray, hotkey, and a session
+uv run python tests/smoke_type.py    # typing into a field (needs an interactive desktop)
 ```
 
-## Известные ограничения
+## Known limitations
 
-- Распознавание идёт после остановки записи (без потокового результата).
-- Вставка через синтетический Ctrl+V — в редких приложениях, блокирующих
-  синтетический ввод, текст останется в буфере (вставьте вручную).
-- CPU-only: `large-v3` на слабых машинах может быть медленной; берите `small`.
-- Поля паролей: вставка сработает как обычный Ctrl+V — приложение не различает
-  защищённые поля (в отличие от macOS-оригинала).
+- Recognition happens after recording stops (no streaming result).
+- Insertion via synthetic Ctrl+V — in the rare application that blocks
+  synthetic input, the text stays in the clipboard (paste it manually).
+- CPU-only: `large-v3` can be slow on weaker machines; use `small` instead.
+- Password fields: insertion behaves like a normal Ctrl+V — the app can't
+  tell protected fields apart (unlike the macOS original).
 
-## Лицензия
+## License
 
-MIT — см. [LICENSE](LICENSE). Используйте, меняйте и распространяйте свободно,
-включая коммерческое использование.
+MIT — see [LICENSE](LICENSE). Use, modify, and distribute freely, including
+commercially.
