@@ -205,6 +205,23 @@ def test_update_check_never_raises_when_offline():
         update_module._API_URL = original
 
 
+def test_detect_system_language_is_always_supported():
+    from windictoo.config import _SUPPORTED_LANGS, _detect_system_language
+
+    # Whatever this machine's locale resolves to, it must be one of the
+    # codes the language picker actually offers — never raise, never return
+    # something gui.LANGS has no entry for.
+    assert _detect_system_language() in _SUPPORTED_LANGS
+
+
+def test_config_language_default_factory_is_overridable():
+    # A brand-new Config() gets the detected system language, but an
+    # existing saved value (what Config.load() passes explicitly) must
+    # always win — this is the whole point of using default_factory here.
+    assert Config(language="ru").language == "ru"
+    assert Config().language in {"en", "ru", "de", "fr", "es", "zh", "tr", "hy"}
+
+
 # --- integration ------------------------------------------------------------
 
 PHRASE_RU = "Это проверка распознавания речи"

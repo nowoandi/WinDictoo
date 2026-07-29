@@ -49,9 +49,11 @@ class MicIndicator(tk.Canvas):
         # Main disc.
         r = s * 0.30
         self.create_oval(c - r, c - r, c + r, c + r, fill=color, outline="")
-        # Glyph.
+        # Glyph — must contrast with the disc, not just "white": bright
+        # accent colours (e.g. geek-black's neon green) make white nearly
+        # invisible, same problem as button text on an accent background.
         self.create_text(c, c, text=theme.STATE_GLYPH.get(self._state, "🎙"),
-                         fill="#ffffff", font=("Segoe UI Emoji", int(s * 0.22)))
+                         fill=theme.ON_ACCENT, font=("Segoe UI Emoji", int(s * 0.22)))
 
     def _ring(self, c: float, r: float, color: str, width: int, stipple_fill: bool) -> None:
         self.create_oval(c - r, c - r, c + r, c + r, outline=color, width=width)
