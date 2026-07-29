@@ -72,7 +72,8 @@ class Onboarding:
                       hover_color=theme.CARD, text_color=theme.MUTED,
                       corner_radius=theme.RADIUS_BUTTON, command=self._skip_all).pack(side="left", padx=8)
         self.next_btn = ctk.CTkButton(nav, text="Далее", width=150, fg_color=theme.ACCENT,
-                                       hover_color=theme.ACCENT_HOVER, font=_font(14, "bold"),
+                                       hover_color=theme.ACCENT_HOVER, text_color=theme.ON_ACCENT,
+                                       font=_font(14, "bold"),
                                        corner_radius=theme.RADIUS_BUTTON, command=self._next)
         self.next_btn.pack(side="right")
 
@@ -153,7 +154,8 @@ class Onboarding:
         self._eq = Equalizer(self.card, width=400, height=54, bg=theme.CARD)
         self._eq.pack(pady=10)
         self._mic_btn = ctk.CTkButton(self.card, text="🎤  Проверить микрофон", fg_color=theme.ACCENT,
-                                      hover_color=theme.ACCENT_HOVER, corner_radius=theme.RADIUS_BUTTON,
+                                      hover_color=theme.ACCENT_HOVER, text_color=theme.ON_ACCENT,
+                                      corner_radius=theme.RADIUS_BUTTON,
                                       command=self._toggle_probe)
         self._mic_btn.pack(pady=4)
         self._text("Скажите что-нибудь — полоски должны двигаться. Если нет — проверьте\n"
@@ -170,14 +172,16 @@ class Onboarding:
         self._model_status = ctk.CTkLabel(self.card, text="", font=_font(12), text_color=theme.SUCCESS)
         self._model_status.pack(anchor="w", padx=32, pady=6)
         ctk.CTkButton(self.card, text="Загрузить сейчас", fg_color=theme.ACCENT,
-                      hover_color=theme.ACCENT_HOVER, corner_radius=theme.RADIUS_BUTTON,
+                      hover_color=theme.ACCENT_HOVER, text_color=theme.ON_ACCENT,
+                      corner_radius=theme.RADIUS_BUTTON,
                       command=self._download_model).pack(anchor="w", padx=32)
 
     def _step_hotkey(self) -> None:
         self._title("⌨", "Горячая клавиша")
         self._text(f"Сейчас: {describe(self.cfg.hotkey)}. Удерживайте её во время диктовки.")
         self._hk_btn = ctk.CTkButton(self.card, text=describe(self.cfg.hotkey), fg_color=theme.ACCENT,
-                                     hover_color=theme.ACCENT_HOVER, width=200,
+                                     hover_color=theme.ACCENT_HOVER, text_color=theme.ON_ACCENT,
+                                     width=200,
                                      corner_radius=theme.RADIUS_BUTTON, command=self._capture_hotkey)
         self._hk_btn.pack(padx=32, pady=12)
         self._hk_err = ctk.CTkLabel(self.card, text="", font=_font(11), text_color=theme.DANGER)
@@ -188,7 +192,8 @@ class Onboarding:
         self._title("🎤", "Проверка диктовки")
         self._text("Нажмите, скажите пару фраз, остановите. Текст появится ниже —\nникуда не вставляется.")
         self._test_btn = ctk.CTkButton(self.card, text="🎤  Начать запись", fg_color=theme.ACCENT,
-                                       hover_color=theme.ACCENT_HOVER, corner_radius=theme.RADIUS_BUTTON,
+                                       hover_color=theme.ACCENT_HOVER, text_color=theme.ON_ACCENT,
+                                       corner_radius=theme.RADIUS_BUTTON,
                                        command=self._toggle_test)
         self._test_btn.pack(padx=32, pady=8)
         self._test_state = ctk.CTkLabel(self.card, text="", font=_font(12), text_color=theme.MUTED)

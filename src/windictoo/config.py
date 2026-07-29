@@ -9,6 +9,31 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# Whisper language codes this app's language picker actually offers
+# (windictoo.gui.LANGS) — kept in sync manually since gui.py can't be
+# imported from here without a circular import.
+_SUPPORTED_LANGS = {"ru", "en", "de", "fr", "es", "zh", "tr", "hy"}
+
+
+def _detect_system_language() -> str:
+    """The Windows UI locale, if it's one we support — used only as the
+    *default* for a brand-new install (an existing config.json always wins;
+    see Config.load()). GetUserDefaultLocaleName is a plain Win32 API call,
+    no special permissions or dialogs involved. Falls back to English on
+    any failure or on a locale we don't have a picker entry for."""
+    try:
+        import ctypes
+
+        buf = ctypes.create_unicode_buffer(85)
+        if ctypes.windll.kernel32.GetUserDefaultLocaleName(buf, 85):
+            code = buf.value.split("-")[0].lower()
+            if code in _SUPPORTED_LANGS:
+                return code
+    except Exception:  # noqa: BLE001
+        pass
+    return "en"
+
+
 CONFIG_DIR = Path.home() / "AppData" / "Local" / "WinDictoo"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 MODELS_DIR = CONFIG_DIR / "models"
@@ -36,9 +61,10 @@ class Config:
 
     model: str = "small"
     compute_type: str = "int8"
-    # English default: the project is published for an international
-    # audience, not just Russian speakers.
-    language: str = "en"  # "auto" | "ru" | "de" | "en"
+    # Defaults to the Windows UI language on a brand-new install (falls back
+    # to English if that's not one of our supported codes); once saved, the
+    # user's own choice always takes over — see _detect_system_language().
+    language: str = field(default_factory=_detect_system_language)
     threads: int = 4
 
     # 0 = keep the model in RAM forever (fastest repeat dictation); >0 =

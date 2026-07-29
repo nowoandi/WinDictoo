@@ -1,8 +1,9 @@
 """Shared visual palette for the CustomTkinter UI.
 
-Two themes: the original dark (violet accent) and a light-green one that
-mirrors the airy landing-page look. `apply(name)` swaps the module-level
-colours; the GUI rebuilds itself so the change is live.
+Several themes: the original dark (violet accent), and a handful of calm
+light palettes (mint green, dusty rose, light blue, chocolate+gold).
+`apply(name)` swaps the module-level colours; the GUI rebuilds itself so
+the change is live.
 """
 
 from __future__ import annotations
@@ -11,19 +12,36 @@ from .app import State
 
 # Names of the module-level colour attributes a palette provides.
 _KEYS = ("BG", "CARD", "CARD_HI", "STROKE", "TEXT", "MUTED", "ACCENT",
-         "ACCENT_HOVER", "ACCENT_DIM", "SUCCESS", "WARN", "DANGER", "STATE_COLOR")
+         "ACCENT_HOVER", "ACCENT_DIM", "ON_ACCENT", "SUCCESS", "WARN", "DANGER", "STATE_COLOR")
 
 PALETTES: dict[str, dict] = {
     "dark": {
         "BG": "#141420", "CARD": "#1e1e2c", "CARD_HI": "#262636", "STROKE": "#2f2f42",
         "TEXT": "#ececf4", "MUTED": "#9a9ab0",
         "ACCENT": "#6c5ce7", "ACCENT_HOVER": "#5a4bd4", "ACCENT_DIM": "#3a3560",
+        "ON_ACCENT": "#ffffff",
         "SUCCESS": "#3ddc84", "WARN": "#ffb020", "DANGER": "#ff4d6d",
         "APPEARANCE": "dark",
         "STATE_COLOR": {
             State.IDLE: "#6c5ce7", State.RECORDING: "#ff4d6d", State.TRANSCRIBING: "#4aa3ff",
             State.REFINING: "#a06bff", State.INSERTING: "#4aa3ff", State.DONE: "#3ddc84",
             State.CANCELLED: "#9a9ab0", State.ERROR: "#ffb020",
+        },
+    },
+    "geek-black": {
+        # True-black, neon-green-on-black "hacker terminal" look.
+        "BG": "#000000", "CARD": "#0a0f0c", "CARD_HI": "#10160f", "STROKE": "#1f2b22",
+        "TEXT": "#d7ffe0", "MUTED": "#6fae7f",
+        "ACCENT": "#39ff14", "ACCENT_HOVER": "#2ecc0f", "ACCENT_DIM": "#143d16",
+        # White-on-neon-green is nearly unreadable — every other theme's
+        # ACCENT is dark/saturated enough for white text, this one isn't.
+        "ON_ACCENT": "#062b0c",
+        "SUCCESS": "#39ff14", "WARN": "#ffb020", "DANGER": "#ff3b3b",
+        "APPEARANCE": "dark",
+        "STATE_COLOR": {
+            State.IDLE: "#39ff14", State.RECORDING: "#ff3b3b", State.TRANSCRIBING: "#22d3ee",
+            State.REFINING: "#a06bff", State.INSERTING: "#22d3ee", State.DONE: "#39ff14",
+            State.CANCELLED: "#6fae7f", State.ERROR: "#ffb020",
         },
     },
     "light-green": {
@@ -33,6 +51,7 @@ PALETTES: dict[str, dict] = {
         # the white cards (user feedback).
         "TEXT": "#123021", "MUTED": "#2a4a38",
         "ACCENT": "#0f9e51", "ACCENT_HOVER": "#0b7c3e", "ACCENT_DIM": "#bfe6cd",
+        "ON_ACCENT": "#ffffff",
         "SUCCESS": "#0f9e51", "WARN": "#c9761a", "DANGER": "#dd3d74",
         "APPEARANCE": "light",
         "STATE_COLOR": {
@@ -41,10 +60,67 @@ PALETTES: dict[str, dict] = {
             State.CANCELLED: "#6b8577", State.ERROR: "#c9761a",
         },
     },
+    "light-blue": {
+        # Same airy structure as light-green, cool tone instead of mint.
+        "BG": "#e7eff5", "CARD": "#ffffff", "CARD_HI": "#eef5fa", "STROKE": "#cfe0ea",
+        "TEXT": "#0f2733", "MUTED": "#3d5866",
+        "ACCENT": "#1f7a9e", "ACCENT_HOVER": "#175f7a", "ACCENT_DIM": "#c3e0ea",
+        "ON_ACCENT": "#ffffff",
+        "SUCCESS": "#0f9e51", "WARN": "#c9761a", "DANGER": "#dd3d74",
+        "APPEARANCE": "light",
+        "STATE_COLOR": {
+            State.IDLE: "#1f7a9e", State.RECORDING: "#dd3d74", State.TRANSCRIBING: "#1f7a9e",
+            State.REFINING: "#6d4bd8", State.INSERTING: "#1f7a9e", State.DONE: "#0f9e51",
+            State.CANCELLED: "#6b8290", State.ERROR: "#c9761a",
+        },
+    },
+    "dusty-rose": {
+        # "Альтроза" — calm, warm rose instead of mint/blue.
+        "BG": "#f5e8ea", "CARD": "#ffffff", "CARD_HI": "#faf0f1", "STROKE": "#e3cdd1",
+        "TEXT": "#3d1f24", "MUTED": "#6b4750",
+        "ACCENT": "#b5657a", "ACCENT_HOVER": "#9c4f62", "ACCENT_DIM": "#ecd3d8",
+        "ON_ACCENT": "#ffffff",
+        "SUCCESS": "#4a9d6f", "WARN": "#c9761a", "DANGER": "#c0435a",
+        "APPEARANCE": "light",
+        "STATE_COLOR": {
+            State.IDLE: "#b5657a", State.RECORDING: "#c0435a", State.TRANSCRIBING: "#3a7fa8",
+            State.REFINING: "#8a5a9c", State.INSERTING: "#3a7fa8", State.DONE: "#4a9d6f",
+            State.CANCELLED: "#8c6b71", State.ERROR: "#c9761a",
+        },
+    },
+    "choc-gold": {
+        # Draft — colours lifted from the Event Deko Schneider brand board
+        # (cream/near-black/gold) the user shared; swap in their exact link
+        # once sent, this is a starting point to react to, not final.
+        "BG": "#faf7f2", "CARD": "#ffffff", "CARD_HI": "#f3ede3", "STROKE": "#e8e0d4",
+        "TEXT": "#1a1410", "MUTED": "#6b5c4d",
+        "ACCENT": "#b8935a", "ACCENT_HOVER": "#9c7a45", "ACCENT_DIM": "#e8dcc4",
+        "ON_ACCENT": "#ffffff",
+        "SUCCESS": "#7a9456", "WARN": "#c9761a", "DANGER": "#a8433a",
+        "APPEARANCE": "light",
+        "STATE_COLOR": {
+            State.IDLE: "#b8935a", State.RECORDING: "#a8433a", State.TRANSCRIBING: "#8a6a3a",
+            State.REFINING: "#8a6aa0", State.INSERTING: "#8a6a3a", State.DONE: "#7a9456",
+            State.CANCELLED: "#8c7d6a", State.ERROR: "#c9761a",
+        },
+    },
+}
+
+# Canonical theme order for the swatch picker. The picker itself shows no
+# text (just each theme's ACCENT colour as a little square) — this dict's
+# values are a fallback label (tooltips, logs) rather than UI copy.
+THEME_LABELS: dict[str, str] = {
+    "dark": "Тёмная",
+    "geek-black": "Гик-чёрная",
+    "light-green": "Светло-зелёная",
+    "light-blue": "Светло-синяя",
+    "dusty-rose": "Альтроза",
+    "choc-gold": "Шоколад-золото",
 }
 
 # Live values (default dark) — set by apply().
 BG = CARD = CARD_HI = STROKE = TEXT = MUTED = ACCENT = ACCENT_HOVER = ACCENT_DIM = ""
+ON_ACCENT = ""
 SUCCESS = WARN = DANGER = ""
 APPEARANCE = "dark"
 STATE_COLOR: dict[State, str] = {}
