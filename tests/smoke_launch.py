@@ -78,8 +78,46 @@ def main() -> int:
     assert gui.settings_win is not None and gui.settings_win.winfo_exists()
     gui._build_overlay()
     gui.root.update()
-    gui.root.destroy()
     print("[OK] GUI main window, settings tabs and overlay build")
+
+    # 1c. The result box's placeholder must never leak into real content.
+    # It shares one editable widget with the transcript, so the risk is that
+    # the hint gets copied, kept when the user starts typing, or spliced
+    # back in by Ctrl+Z (the box has undo=True) after a dictation.
+    from windictoo import i18n
+
+    hint = i18n.t("main.result_placeholder")
+    box = lambda: gui.result_box.get("1.0", "end").strip()  # noqa: E731
+
+    assert box() == hint and gui._result_is_placeholder, "hint should show on a fresh window"
+
+    gui.root.clipboard_clear()
+    gui.root.clipboard_append("SENTINEL")
+    gui._copy_result()
+    gui.root.update()
+    assert gui.root.clipboard_get() == "SENTINEL", "Copy must ignore the placeholder"
+
+    gui._result_focus_in()
+    assert box() == "" and not gui._result_is_placeholder, "focus should clear the hint"
+    gui._result_focus_out()
+    assert box() == hint, "leaving an untouched box should restore the hint"
+
+    gui._result_focus_in()
+    gui.result_box.insert("1.0", "мой текст")
+    gui._result_focus_out()
+    assert box() == "мой текст", "the hint must never overwrite what the user typed"
+
+    gui._show_result("распознанный текст")
+    for _ in range(5):
+        try:
+            gui.result_box.edit_undo()
+        except tk.TclError:
+            break  # empty undo stack is exactly what we want
+    gui.root.update()
+    assert hint not in box(), "Ctrl+Z must not splice the hint into a transcript"
+
+    gui.root.destroy()
+    print("[OK] result placeholder never leaks into transcript/clipboard/undo")
 
     # Fresh dictation for the session test (previous root was destroyed).
     dictation = Dictation(cfg)

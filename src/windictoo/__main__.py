@@ -11,7 +11,7 @@ import logging
 import sys
 import threading
 
-from . import i18n
+from . import autostart, i18n, oldversions
 from .app import Dictation
 from .config import CONFIG_DIR, LOG_PATH, Config
 from .hotkey import HotkeyListener, describe
@@ -125,6 +125,17 @@ def main() -> int:
 
     cfg = Config.load()
     cfg.save()
+    if not cfg.legacy_autostart_cleanup_done:
+        # Also runs even without the "old versions" banner's cleanup button:
+        # a machine that already fully uninstalled an old name via Add/Remove
+        # Programs before this fix shipped would never see that banner again,
+        # yet could still carry an orphaned Run-key entry from it. A one-shot
+        # flag (rather than every launch forever) since this only ever
+        # matters on machines upgraded across a rename — a shrinking group.
+        autostart.remove_legacy_startup_shortcut()
+        oldversions.purge_stale_autostart_entries()
+        cfg.legacy_autostart_cleanup_done = True
+        cfg.save()
     dictation = Dictation(cfg)
 
     from .gui import WinDictooGUI

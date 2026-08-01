@@ -192,15 +192,13 @@ class WinDictooGUI:
                                     wraplength=340)
         self.sub_lbl.pack(pady=(0, 16))
 
-        # Chips row — hotkey + mode only; the model is a Settings concern,
-        # not something worth a permanent slot on the main screen.
-        chips = ctk.CTkFrame(self.root, fg_color="transparent")
-        chips.pack(fill="x", padx=20, pady=(0, 4))
-        self.hotkey_chip = self._chip(chips, "⌨ " + describe(self.cfg.hotkey), expand=True)
-        self.mode_chip = self._chip(
-            chips, "⏱ " + (i18n.t("main.mode_hold_short") if self.cfg.mode == "hold"
-                           else i18n.t("main.mode_toggle_short")),
-            expand=True, last=True)
+        # Chips row — hotkey + mode always; a third "Ollama" chip appears
+        # only while refinement is enabled (nothing to show otherwise), so
+        # this is rebuilt in place (not just re-labelled) whenever that
+        # setting changes — see _build_chips/_set_refine.
+        self.chips_frame = ctk.CTkFrame(self.root, fg_color="transparent")
+        self.chips_frame.pack(fill="x", padx=20, pady=(0, 4))
+        self._build_chips()
 
         # Primary Start/Stop button (label toggles with state).
         self.test_btn = ctk.CTkButton(self.root, text=i18n.t("main.btn_start"), height=48,
@@ -219,10 +217,13 @@ class WinDictooGUI:
         rhead.pack(fill="x", padx=16, pady=(6, 2))
         ctk.CTkLabel(rhead, text=i18n.t("main.recognized_text_label"), font=_font(10, "bold"),
                      text_color=theme.MUTED).pack(side="left")
+        # Accent-tinted label where that stays legible on CARD_HI, plain TEXT
+        # where it doesn't (the dark palette's accent measured only 2.40:1).
+        chip_text = theme.readable_on(theme.CARD_HI, theme.ACCENT_HOVER, theme.ACCENT, theme.TEXT)
         self.copy_btn = ctk.CTkButton(rhead, text=i18n.t("common.copy"), width=110, height=28,
                                       corner_radius=theme.RADIUS_WIDGET, font=_font(11, "bold"),
                                       fg_color=theme.CARD_HI, hover_color=theme.STROKE,
-                                      text_color=theme.ACCENT_HOVER, border_width=1,
+                                      text_color=chip_text, border_width=1,
                                       border_color=theme.STROKE, command=self._copy_result)
         self.copy_btn.pack(side="right")
         # Quick recognition-language switch, right next to Copy — dictation
@@ -233,7 +234,7 @@ class WinDictooGUI:
         self.lang_btn = ctk.CTkButton(rhead, text=self._lang_abbr(self.cfg.language), width=40, height=28,
                                       corner_radius=theme.RADIUS_WIDGET, font=_font(11, "bold"),
                                       fg_color=theme.CARD_HI, hover_color=theme.STROKE,
-                                      text_color=theme.ACCENT_HOVER, border_width=1,
+                                      text_color=chip_text, border_width=1,
                                       border_color=theme.STROKE,
                                       command=lambda: self._open_lang_picker(self.lang_btn))
         self.lang_btn.pack(side="right", padx=(0, 8))
@@ -245,7 +246,9 @@ class WinDictooGUI:
                                          wrap="word", border_width=1, border_color=theme.STROKE,
                                          height=80, undo=True)
         self.result_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        self.result_box.insert("1.0", i18n.t("main.result_placeholder"))
+        self.result_box.bind("<FocusIn>", self._result_focus_in)
+        self.result_box.bind("<FocusOut>", self._result_focus_out)
+        self._show_placeholder()
 
     def _chip(self, parent, text: str, expand: bool = False, last: bool = False) -> ctk.CTkLabel:
         f = ctk.CTkFrame(parent, fg_color=theme.CARD, corner_radius=theme.RADIUS_CHIP,
@@ -266,6 +269,60 @@ class WinDictooGUI:
         self.mode_chip.configure(text="⏱  " + (i18n.t("main.mode_hold_short") if self.cfg.mode == "hold"
                                                 else i18n.t("main.mode_toggle_long")))
         self.root.update_idletasks()
+
+    def _build_chips(self) -> None:
+        """(Re)build the chip row in place — called at startup and again
+        whenever refinement is toggled, since a chip only exists while
+        there's something to report (unlike hotkey/mode, always present)."""
+        for w in list(self.chips_frame.winfo_children()):
+            w.destroy()
+        show_refine = self.cfg.refine_enabled
+        self.hotkey_chip = self._chip(self.chips_frame, "⌨ " + describe(self.cfg.hotkey), expand=True)
+        self.mode_chip = self._chip(
+            self.chips_frame, "⏱ " + (i18n.t("main.mode_hold_short") if self.cfg.mode == "hold"
+                                      else i18n.t("main.mode_toggle_short")),
+            expand=True, last=not show_refine)
+        if show_refine:
+            self.refine_chip = self._chip(self.chips_frame, i18n.t("main.refine_checking"),
+                                          expand=True, last=True)
+            self._refresh_refine_status()
+        else:
+            self.refine_chip = None
+
+    def _refresh_refine_status(self) -> None:
+        """Pings Ollama in the background and updates the chip; reschedules
+        itself every 30s so the indicator reflects Ollama actually being up,
+        not just the setting being on. Stops cleanly once refinement is
+        turned off or the chip/window is gone (never leaks after a rebuild:
+        it always re-reads self.refine_chip rather than closing over it)."""
+        if not self.cfg.refine_enabled or self.refine_chip is None:
+            return
+
+        def work() -> None:
+            try:
+                ok = bool(refine.list_models(self.cfg.ollama_endpoint))
+            except Exception:  # noqa: BLE001
+                ok = False
+
+            def apply() -> None:
+                if self.refine_chip is None:
+                    return
+                try:
+                    self.refine_chip.configure(
+                        text=i18n.t("main.refine_connected" if ok else "main.refine_disconnected"))
+                except tk.TclError:
+                    pass
+
+            try:
+                self.root.after(0, apply)
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=work, daemon=True).start()
+        try:
+            self.root.after(30000, self._refresh_refine_status)
+        except RuntimeError:
+            pass
 
     # ------------------------------------------------------------ state/render
 
@@ -317,12 +374,57 @@ class WinDictooGUI:
         else:
             self.eq.set_active(False)
 
+    # ------------------------------------------------------ result placeholder
+    #
+    # The hint text ("Нажмите Старт…") lives in the same editable box as the
+    # real transcript, so it must never be mistaken for content. Two rules
+    # keep that airtight:
+    #
+    #  1. `_result_is_placeholder` is the ONLY source of truth — never infer
+    #     it by comparing the box text against the hint string (that breaks
+    #     the moment someone dictates the hint's exact wording).
+    #  2. Every transition calls edit_reset(). The box has undo=True, so
+    #     without it the placeholder's deletion sits on the undo stack and a
+    #     later Ctrl+Z can splice the hint straight back into a finished
+    #     transcript — which is exactly the failure mode to avoid here.
+
+    def _show_placeholder(self) -> None:
+        self.result_box.delete("1.0", "end")
+        self.result_box.insert("1.0", i18n.t("main.result_placeholder"))
+        self.result_box.configure(text_color=theme.MUTED)
+        self._result_is_placeholder = True
+        self.result_box.edit_reset()
+
+    def _clear_placeholder(self) -> None:
+        if not getattr(self, "_result_is_placeholder", False):
+            return
+        self.result_box.delete("1.0", "end")
+        self.result_box.configure(text_color=theme.TEXT)
+        self._result_is_placeholder = False
+        self.result_box.edit_reset()
+
+    def _result_focus_in(self, _event=None) -> None:
+        self._clear_placeholder()
+
+    def _result_focus_out(self, _event=None) -> None:
+        # Only ever restore into a genuinely empty box — never overwrite a
+        # transcript the user is still working on.
+        try:
+            if not self._result_is_placeholder and not self.result_box.get("1.0", "end").strip():
+                self._show_placeholder()
+        except tk.TclError:
+            pass  # widget already destroyed (theme/language rebuild)
+
     def _show_result(self, text: str) -> None:
         self.result_box.delete("1.0", "end")
         self.result_box.insert("1.0", text or i18n.t("main.result_empty"))
+        self.result_box.configure(text_color=theme.TEXT)
+        self._result_is_placeholder = False
         self.result_box.edit_reset()  # a fresh dictation isn't an "undo" of the last edit
 
     def _copy_result(self) -> None:
+        if getattr(self, "_result_is_placeholder", False):
+            return  # the hint is not content — nothing to copy
         text = self.result_box.get("1.0", "end").strip()
         if not text:
             return
@@ -604,6 +706,39 @@ class WinDictooGUI:
             pass
         self.root.after(140, self._rebuild_ui)
 
+    @staticmethod
+    def _recolor_segmented(seg: ctk.CTkSegmentedButton, selected: str) -> None:
+        """CTkSegmentedButton (and CTkTabview, which is built on one) exposes
+        a single `text_color` shared by selected and unselected segments. The
+        selected one is filled with ACCENT, so it inherits a colour chosen for
+        the unselected background — on a bright accent that's unreadable
+        (neon green measured 1.06:1, i.e. no contrast at all). Recolour each
+        internal button by hand: ON_ACCENT on the filled one, TEXT on the rest.
+
+        Must be called again on every switch — CTk repaints the fills itself
+        but never touches these per-button text colours."""
+        for value, btn in seg._buttons_dict.items():
+            try:
+                btn.configure(text_color=theme.ON_ACCENT if value == selected else theme.TEXT)
+            except (tk.TclError, AttributeError):
+                pass
+
+    def _segmented(self, parent, values: list[str], current: str, on_change) -> ctk.CTkSegmentedButton:
+        """A themed segmented button. Without the explicit colours below CTk
+        falls back to its own built-in palette (a light grey fill and #dce4ee
+        text) that ignores the active theme entirely."""
+        seg = ctk.CTkSegmentedButton(
+            parent, values=values,
+            corner_radius=theme.RADIUS_WIDGET,
+            fg_color=theme.STROKE,
+            selected_color=theme.ACCENT, selected_hover_color=theme.ACCENT_HOVER,
+            unselected_color=theme.CARD, unselected_hover_color=theme.CARD_HI,
+            text_color=theme.TEXT,
+            command=lambda v: (on_change(v), self._recolor_segmented(seg, v)))
+        seg.set(current)
+        self._recolor_segmented(seg, current)
+        return seg
+
     def _rebuild_ui(self) -> None:
         try:
             theme.apply(self.cfg.ui_theme)
@@ -659,19 +794,17 @@ class WinDictooGUI:
         win.configure(fg_color=theme.BG)
         win.transient(self.root)
         self.settings_win = win
-        # CTkTabview/CTkSegmentedButton only expose a single `text_color` for
-        # both states, so the selected tab (fg_color=ACCENT) keeps whatever
-        # text colour the unselected ones use — invisible on bright accents
-        # like geek-black's neon green. Recolour each tab button by hand
-        # instead: ON_ACCENT for the selected one, TEXT for the rest.
+        # See _recolor_segmented: a CTkTabview is a CTkSegmentedButton under
+        # the hood and shares its single-text_color limitation.
         def _recolor_tabs() -> None:
-            current = tabs.get()
-            for name, btn in tabs._segmented_button._buttons_dict.items():
-                btn.configure(text_color=theme.ON_ACCENT if name == current else theme.TEXT)
+            self._recolor_segmented(tabs._segmented_button, tabs.get())
 
         tabs = ctk.CTkTabview(win, fg_color=theme.CARD, segmented_button_fg_color=theme.CARD,
                               segmented_button_selected_color=theme.ACCENT,
                               segmented_button_selected_hover_color=theme.ACCENT_HOVER,
+                              segmented_button_unselected_color=theme.CARD,
+                              segmented_button_unselected_hover_color=theme.CARD_HI,
+                              text_color=theme.TEXT,
                               corner_radius=theme.RADIUS_CARD,
                               border_width=1, border_color=theme.STROKE,
                               command=_recolor_tabs)
@@ -708,12 +841,10 @@ class WinDictooGUI:
         self.hk_err = ctk.CTkLabel(c1, text="", font=_font(11), text_color=theme.DANGER)
         self.hk_err.pack(anchor="w", padx=14)
         mode_hold, mode_toggle = i18n.t("gen.mode_hold"), i18n.t("gen.mode_toggle")
-        mode = ctk.CTkSegmentedButton(
-            c1, values=[mode_hold, mode_toggle],
-            corner_radius=theme.RADIUS_WIDGET,
-            selected_color=theme.ACCENT, selected_hover_color=theme.ACCENT_HOVER,
-            command=lambda v: self._set_mode("hold" if v == mode_hold else "toggle"))
-        mode.set(mode_hold if self.cfg.mode == "hold" else mode_toggle)
+        mode = self._segmented(
+            c1, [mode_hold, mode_toggle],
+            mode_hold if self.cfg.mode == "hold" else mode_toggle,
+            lambda v: self._set_mode("hold" if v == mode_hold else "toggle"))
         mode.pack(fill="x", padx=14, pady=(2, 12))
         sup = ctk.CTkSwitch(c1, text=i18n.t("gen.suppress_switch"),
                             font=_font(12), progress_color=theme.ACCENT,
@@ -723,12 +854,10 @@ class WinDictooGUI:
 
         c2 = self._card(tab, i18n.t("gen.card_insertion"))
         insertion_type, insertion_paste = i18n.t("gen.insertion_type"), i18n.t("gen.insertion_paste")
-        method = ctk.CTkSegmentedButton(
-            c2, values=[insertion_type, insertion_paste],
-            corner_radius=theme.RADIUS_WIDGET,
-            selected_color=theme.ACCENT, selected_hover_color=theme.ACCENT_HOVER,
-            command=lambda v: self._set_method("type" if v == insertion_type else "paste"))
-        method.set(insertion_type if self.cfg.insertion_method == "type" else insertion_paste)
+        method = self._segmented(
+            c2, [insertion_type, insertion_paste],
+            insertion_type if self.cfg.insertion_method == "type" else insertion_paste,
+            lambda v: self._set_method("type" if v == insertion_type else "paste"))
         method.pack(fill="x", padx=14, pady=(2, 12))
 
         c_mic = self._card(tab, i18n.t("gen.card_mic"))
@@ -827,7 +956,7 @@ class WinDictooGUI:
         ).pack(anchor="w", padx=14, pady=(0, 10))
 
         cs = self._card(tab, i18n.t("ref.card_howto"))
-        for key in ["ref.step1", "ref.step2", "ref.step3", "ref.step4"]:
+        for key in ["ref.step1", "ref.step2", "ref.step3", "ref.step4", "ref.step5"]:
             ctk.CTkLabel(cs, text=i18n.t(key), font=_font(12), text_color=theme.TEXT,
                          wraplength=470, justify="left").pack(anchor="w", padx=14, pady=1)
         btns = ctk.CTkFrame(cs, fg_color="transparent")
@@ -998,6 +1127,7 @@ class WinDictooGUI:
     def _set_refine(self, v: int) -> None:
         self.cfg.refine_enabled = bool(v)
         self.cfg.save()
+        self._build_chips()
 
     def _preload_model(self) -> None:
         self.model_status.configure(text=i18n.t("common.loading_model"))
@@ -1313,6 +1443,7 @@ class WinDictooGUI:
         def do_remove() -> None:
             remove_btn.configure(state="disabled", text=i18n.t("old.removing"))
             ok = all(oldversions.uninstall(cmd) for _, _, cmd in self._oldversions_found)
+            oldversions.purge_stale_autostart_entries()
             status.configure(
                 text=i18n.t("old.done_ok") if ok else i18n.t("old.done_partial"),
                 text_color=theme.SUCCESS if ok else theme.WARN,

@@ -143,9 +143,12 @@ class Onboarding:
     def _step_welcome(self) -> None:
         self._title("👋", i18n.t("ob.welcome_title"))
         self._text(i18n.t("ob.welcome_text"))
-        for key in ["ob.welcome_p1", "ob.welcome_p2", "ob.welcome_p3"]:
-            ctk.CTkLabel(self.card, text="✓  " + i18n.t(key), font=_font(13), text_color=theme.TEXT).pack(
-                anchor="w", padx=32, pady=3)
+        # "Hello" in every interface language the app ships with — says
+        # "this speaks your language" at a glance, which three lines of
+        # feature bullets did not.
+        ctk.CTkLabel(self.card, text="  ·  ".join(i18n.GREETINGS),
+                     font=_font(14, "bold"), text_color=theme.ACCENT,
+                     wraplength=490, justify="center").pack(padx=28, pady=(18, 6))
 
     def _step_microphone(self) -> None:
         self._title("🎙", i18n.t("ob.mic_title"))

@@ -95,7 +95,9 @@ PALETTES: dict[str, dict] = {
         "BG": "#faf7f2", "CARD": "#ffffff", "CARD_HI": "#f3ede3", "STROKE": "#e8e0d4",
         "TEXT": "#1a1410", "MUTED": "#6b5c4d",
         "ACCENT": "#b8935a", "ACCENT_HOVER": "#9c7a45", "ACCENT_DIM": "#e8dcc4",
-        "ON_ACCENT": "#ffffff",
+        # White measured only 2.85:1 on this soft gold — below the AA-large
+        # floor. A very dark brown keeps the palette warm and reaches 7.4:1.
+        "ON_ACCENT": "#231a09",
         "SUCCESS": "#7a9456", "WARN": "#c9761a", "DANGER": "#a8433a",
         "APPEARANCE": "light",
         "STATE_COLOR": {
@@ -144,6 +146,52 @@ def apply(theme_name: str) -> str:
     APPEARANCE = p["APPEARANCE"]
     name = theme_name if theme_name in PALETTES else "dark"
     return name
+
+
+# --------------------------------------------------------------- contrast
+# Six palettes x every accent surface is too much to eyeball reliably — a
+# label that reads fine on the violet accent can be invisible on neon green
+# (that combination measured 1.06:1 before this existed, i.e. no contrast at
+# all). These let a call site *ask* for a readable colour instead of
+# hard-coding one per palette, so adding a palette can't silently reintroduce
+# an unreadable pair.
+
+AA_LARGE = 3.0  # WCAG AA threshold for large/bold UI text
+
+
+def _luminance(hex_color: str) -> float:
+    h = hex_color.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    r, g, b = (int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+    def _lin(v: float) -> float:
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * _lin(r) + 0.7152 * _lin(g) + 0.0722 * _lin(b)
+
+
+def contrast_ratio(fg: str, bg: str) -> float:
+    """WCAG relative-contrast ratio between two hex colours (1.0 .. 21.0)."""
+    try:
+        lf, lb = _luminance(fg), _luminance(bg)
+    except (ValueError, IndexError):
+        return 1.0
+    hi, lo = max(lf, lb), min(lf, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def readable_on(bg: str, *candidates: str) -> str:
+    """First candidate that clears AA_LARGE against `bg`, else whichever
+    contrasts most. Callers pass their preferred (on-brand) colour first and
+    a safe fallback last, so the tint is kept wherever it's actually legible."""
+    usable = [c for c in candidates if isinstance(c, str) and c.startswith("#")]
+    if not usable:
+        return TEXT
+    for c in usable:
+        if contrast_ratio(c, bg) >= AA_LARGE:
+            return c
+    return max(usable, key=lambda c: contrast_ratio(c, bg))
 
 
 apply("dark")
