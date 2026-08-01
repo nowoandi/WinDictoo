@@ -8,6 +8,7 @@ the language.
 
 from __future__ import annotations
 
+
 import subprocess
 import sys
 import wave
@@ -16,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from windictoo import hotkey, refine, update
+from windictoo import hotkey, i18n, refine, update
 from windictoo.config import Config
 from windictoo.transcribe import Transcriber, normalize_whitespace, strip_artifacts
 
@@ -183,6 +184,22 @@ def test_find_old_installs_never_raises():
     assert oldversions.find_old_installs() == []
 
 
+def test_purge_stale_autostart_entries_never_raises():
+    from windictoo import oldversions
+
+    # No leftover Run-key values under old names on this machine either —
+    # the point is a missing value must be swallowed, never raise.
+    oldversions.purge_stale_autostart_entries()
+
+
+def test_remove_legacy_startup_shortcut_never_raises():
+    from windictoo import autostart
+
+    # No leftover Startup-folder shortcut on this machine — must be a no-op,
+    # never raise.
+    autostart.remove_legacy_startup_shortcut()
+
+
 def test_update_is_newer():
     assert update.is_newer("1.4.0", "1.3.0") is True
     assert update.is_newer("v1.4.0", "1.3.0") is True  # tolerate a "v" prefix
@@ -229,6 +246,41 @@ def test_config_ui_language_is_independent_of_language():
     assert cfg.language == "ru"
     assert cfg.ui_language == "en"
     assert Config().ui_language in {"en", "ru", "de", "fr", "es", "zh", "tr", "hy"}
+
+
+def test_every_palette_is_readable():
+    """Guards the palette-level half of the contrast problem: a label placed
+    on ACCENT must clear WCAG AA-large in *every* theme. choc-gold shipped
+    with white-on-gold at 2.85:1 and geek-black had text at 1.06:1 on its
+    neon accent — both unreadable, both invisible to a test that only looked
+    at one theme."""
+    from windictoo import theme
+
+    bad = []
+    for key, pal in theme.PALETTES.items():
+        checks = [
+            ("ON_ACCENT on ACCENT", pal["ON_ACCENT"], pal["ACCENT"]),
+            ("TEXT on BG", pal["TEXT"], pal["BG"]),
+            ("TEXT on CARD", pal["TEXT"], pal["CARD"]),
+            ("TEXT on CARD_HI", pal["TEXT"], pal["CARD_HI"]),
+            ("MUTED on CARD", pal["MUTED"], pal["CARD"]),
+        ]
+        for label, fg, bg in checks:
+            ratio = theme.contrast_ratio(fg, bg)
+            if ratio < theme.AA_LARGE:
+                bad.append(f"{key}: {label} = {ratio:.2f}:1 ({fg} on {bg})")
+    assert not bad, "unreadable colour pairs:\n  " + "\n  ".join(bad)
+
+
+def test_readable_on_prefers_brand_colour_then_falls_back():
+    from windictoo import theme
+
+    # Keeps the on-brand choice when it is legible...
+    assert theme.readable_on("#000000", "#39ff14", "#ffffff") == "#39ff14"
+    # ...and refuses it when it is not, falling through to the safe option.
+    assert theme.readable_on("#39ff14", "#3aff15", "#000000") == "#000000"
+    # Never returns nothing, even when handed junk.
+    assert theme.readable_on("#ffffff", "not-a-colour").startswith("#")
 
 
 def test_i18n_every_key_covers_all_eight_languages():
@@ -316,23 +368,132 @@ def test_sendinput_struct_size():
     assert ctypes.sizeof(insert._INPUT) == expected
 
 
-def test_type_unicode_accepted_by_os():
-    """SendInput accepts our well-formed events (RU, DE, surrogate pairs)."""
+@pytest.fixture(scope="module")
+def typing_sandbox():
+    """A focused window that receives test keystrokes.
+
+    type_unicode() drives the real SendInput API, so it types into whatever
+    window currently has focus. Without this sandbox a plain `pytest` run
+    dumps the sample text straight into whatever the developer happened to
+    have open — a document, a chat, an editor. Owning the focused window
+    contains it, and lets us assert the text actually arrived instead of
+    only that the call returned True.
+
+    Module-scoped on purpose: Tk cannot reliably re-initialise after a root
+    is destroyed inside the same process (the second Tk() fails with
+    "Can't find a usable init.tcl"), so every typing test shares one root.
+    """
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.title("windictoo typing sandbox")
+    root.geometry("420x90+60+60")
+    entry = tk.Entry(root, width=64)
+    entry.pack(fill="both", expand=True, padx=8, pady=8)
+    root.update()
+    root.lift()
+    root.focus_force()
+    entry.focus_force()
+    root.update()
+    try:
+        yield root, entry
+    finally:
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+
+
+def _own_the_foreground(root, entry, attempts: int = 20) -> bool:
+    """Take real OS foreground focus, and confirm Windows agrees.
+
+    SendInput delivers to whatever window is foreground *at that moment*.
+    If the grab fails we must not type at all, or the sample text lands in
+    the developer's editor/chat instead — so callers skip rather than fire
+    blindly. Windows also refuses focus changes from background processes,
+    hence the retry loop."""
+    import ctypes
+    import time
+
+    user32 = ctypes.windll.user32
+    for _ in range(attempts):
+        try:
+            root.deiconify()
+            root.lift()
+            root.focus_force()
+            entry.focus_force()
+            root.update()
+        except Exception:  # noqa: BLE001
+            return False
+        our_hwnd = user32.GetAncestor(entry.winfo_id(), 2) or root.winfo_id()
+        if user32.GetForegroundWindow() == our_hwnd:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _type_and_read(root, entry, text: str, timeout: float = 3.0) -> str:
+    """Send `text` into our own focused Entry and read back what arrived."""
+    import time
+
+    import pytest as _pytest
+
     from windictoo import insert
 
-    assert insert.type_unicode("Привет") is True
-    assert insert.type_unicode("Grüße") is True
-    assert insert.type_unicode("emoji 😀") is True  # surrogate-pair path
+    if not _own_the_foreground(root, entry):
+        _pytest.skip("could not take foreground focus — refusing to type into another window")
+
+    entry.delete(0, "end")
+    root.update()
+    assert insert.type_unicode(text) is True, f"SendInput rejected {text!r}"
+
+    expected = len(text)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        root.update()
+        if len(entry.get()) >= expected:
+            break
+        time.sleep(0.02)
+    root.update()
+    return entry.get()
+
+
+# A Tk Entry decodes incoming characters through the system ANSI codepage
+# rather than Unicode, so "Grüße" arrives as "GrьЯe" on a Russian-locale
+# Windows. That is a Tk limitation, not a defect in type_unicode (which
+# encodes UTF-16 and sets KEYEVENTF_UNICODE correctly — real editors and
+# browsers receive it intact). Tests therefore assert on ASCII exactly and
+# on *character count* for everything else: a dropped or duplicated
+# keystroke still fails, without the result depending on the machine locale.
+
+
+def test_type_unicode_delivers_text_to_focused_field(typing_sandbox):
+    """Real SendInput into a real focused control — the union layout,
+    key-event flags and UTF-16 encoding all have to be right for anything to
+    arrive at all (an undersized union once made every keystroke vanish)."""
+    from windictoo import insert
+
+    root, entry = typing_sandbox
+    assert _type_and_read(root, entry, "hello world") == "hello world"
+    assert len(_type_and_read(root, entry, "Привет")) == len("Привет")
+    assert len(_type_and_read(root, entry, "Grüße")) == len("Grüße")
+
+    # The surrogate-pair path still gets exercised, but Tk 8.6 cannot store
+    # astral-plane characters at all, so only the call is asserted here.
+    assert insert.type_unicode("😀") is True
     assert insert.type_unicode("") is True
 
 
-def test_type_unicode_paces_long_text():
-    """Above _PACE_THRESHOLD_CHARS, type_unicode batches SendInput calls
+def test_type_unicode_paces_long_text(typing_sandbox):
+    """Above _PACE_THRESHOLD_CHARS (80), type_unicode batches SendInput calls
     instead of one giant burst (some legacy Win32 controls drop keystrokes
-    otherwise) — must still report full success for a long dictation."""
+    otherwise) — every character must still arrive."""
     from windictoo import insert
 
-    assert insert.type_unicode("Съешь ещё этих мягких французских булок, да выпей чаю. " * 6) is True
+    long_text = " ".join(i18n.GREETINGS) * 2
+    assert len(long_text) > insert._PACE_THRESHOLD_CHARS, "sample must exercise the batching path"
+    root, entry = typing_sandbox
+    assert len(_type_and_read(root, entry, long_text)) == len(long_text)
 
 
 @pytest.mark.integration

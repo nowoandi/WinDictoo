@@ -26,6 +26,13 @@ UI_LANGS: list[tuple[str, str]] = [
 
 _current: str = "ru"
 
+# Shown on the onboarding welcome screen — one greeting per interface
+# language the app ships with. Deliberately NOT a translated string: the
+# whole point is showing every language at once. Order is presentational
+# (Armenian sits ahead of French by request), so it intentionally differs
+# from UI_LANGS, which drives the actual language picker.
+GREETINGS: list[str] = ["Привет", "Hello", "Hallo", "Բարև", "Bonjour", "Hola", "你好", "Merhaba"]
+
 
 def set_language(lang: str) -> None:
     global _current
@@ -120,6 +127,21 @@ STRINGS: dict[str, dict[str, str]] = {
     "main.result_empty": {
         "ru": "(пусто)", "en": "(empty)", "de": "(leer)", "fr": "(vide)",
         "es": "(vacío)", "zh": "（空）", "tr": "(boş)", "hy": "(դատարկ)",
+    },
+    "main.refine_checking": {
+        "ru": "🧠 Ollama: проверка…", "en": "🧠 Ollama: checking…", "de": "🧠 Ollama: wird geprüft…",
+        "fr": "🧠 Ollama : vérification…", "es": "🧠 Ollama: comprobando…", "zh": "🧠 Ollama：检查中…",
+        "tr": "🧠 Ollama: kontrol ediliyor…", "hy": "🧠 Ollama՝ ստուգում…",
+    },
+    "main.refine_connected": {
+        "ru": "🧠 Ollama: на связи", "en": "🧠 Ollama: online", "de": "🧠 Ollama: online",
+        "fr": "🧠 Ollama : en ligne", "es": "🧠 Ollama: en línea", "zh": "🧠 Ollama：在线",
+        "tr": "🧠 Ollama: çevrimiçi", "hy": "🧠 Ollama՝ կապված է",
+    },
+    "main.refine_disconnected": {
+        "ru": "🧠 Ollama: офлайн", "en": "🧠 Ollama: offline", "de": "🧠 Ollama: offline",
+        "fr": "🧠 Ollama : hors ligne", "es": "🧠 Ollama: sin conexión", "zh": "🧠 Ollama：离线",
+        "tr": "🧠 Ollama: çevrimdışı", "hy": "🧠 Ollama՝ անհասանելի",
     },
     "main.settings_title": {
         "ru": "Настройки WinDictoo", "en": "WinDictoo Settings", "de": "WinDictoo-Einstellungen",
@@ -325,44 +347,54 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "Nasıl etkinleştirilir (tek seferlik kurulum)", "hy": "Ինչպես միացնել (մեկանգամյա կարգավորում)",
     },
     "ref.step1": {
-        "ru": "1.  Установите Ollama — кнопка ниже откроет официальный сайт.",
-        "en": "1.  Install Ollama — the button below opens the official site.",
-        "de": "1.  Installiere Ollama — die Schaltfläche unten öffnet die offizielle Website.",
-        "fr": "1.  Installez Ollama — le bouton ci-dessous ouvre le site officiel.",
-        "es": "1.  Instala Ollama — el botón de abajo abre el sitio oficial.",
-        "zh": "1.  安装 Ollama——下方按钮将打开官方网站。",
-        "tr": "1.  Ollama'yı kurun — aşağıdaki düğme resmi siteyi açar.",
-        "hy": "1.  Տեղադրեք Ollama-ն՝ ստորև կոճակը կբացի պաշտոնական կայքը։",
+        "ru": "1.  Установите Ollama (обычная программа для Windows, права администратора не нужны) — кнопка ниже откроет официальный сайт.",
+        "en": "1.  Install Ollama (a regular Windows program, no admin rights needed) — the button below opens the official site.",
+        "de": "1.  Installiere Ollama (ein normales Windows-Programm, keine Administratorrechte nötig) — die Schaltfläche unten öffnet die offizielle Website.",
+        "fr": "1.  Installez Ollama (un programme Windows normal, aucun droit administrateur requis) — le bouton ci-dessous ouvre le site officiel.",
+        "es": "1.  Instala Ollama (un programa normal de Windows, no requiere permisos de administrador) — el botón de abajo abre el sitio oficial.",
+        "zh": "1.  安装 Ollama（普通的 Windows 程序，无需管理员权限）——下方按钮将打开官方网站。",
+        "tr": "1.  Ollama'yı kurun (normal bir Windows programıdır, yönetici izni gerekmez) — aşağıdaki düğme resmi siteyi açar.",
+        "hy": "1.  Տեղադրեք Ollama-ն (սովորական Windows ծրագիր է, ադմինիստրատորի իրավունքներ պետք չեն)՝ ստորև կոճակը կբացի պաշտոնական կայքը։",
     },
     "ref.step2": {
-        "ru": "2.  Скачайте модель: вторая кнопка скопирует команду — вставьте её\n     в окно «Терминал» (Win+X → Терминал) и нажмите Enter.",
-        "en": "2.  Download a model: the second button copies the command — paste it\n     into the Terminal window (Win+X → Terminal) and press Enter.",
-        "de": "2.  Lade ein Modell herunter: die zweite Schaltfläche kopiert den Befehl — füge ihn\n     ins Terminal-Fenster ein (Win+X → Terminal) und drücke Enter.",
-        "fr": "2.  Téléchargez un modèle : le deuxième bouton copie la commande — collez-la\n     dans la fenêtre Terminal (Win+X → Terminal) et appuyez sur Entrée.",
-        "es": "2.  Descarga un modelo: el segundo botón copia el comando — pégalo\n     en la ventana de Terminal (Win+X → Terminal) y pulsa Intro.",
-        "zh": "2.  下载模型：第二个按钮会复制命令——将其粘贴到\n     「终端」窗口（Win+X → 终端）中并按 Enter。",
-        "tr": "2.  Bir model indirin: ikinci düğme komutu kopyalar — bunu\n     Terminal penceresine yapıştırın (Win+X → Terminal) ve Enter'a basın.",
-        "hy": "2.  Ներբեռնեք մոդել՝ երկրորդ կոճակը կպատճենի հրամանը՝ տեղադրեք այն\n     «Տերմինալ» պատուհանում (Win+X → Տերմինալ) և սեղմեք Enter։",
+        "ru": "2.  После установки Ollama сама запускается и работает в фоне — значок появится в системном трее (рядом с часами). Если не видите его, запустите Ollama один раз из меню Пуск — без неё следующие шаги не сработают.",
+        "en": "2.  Once installed, Ollama starts itself and runs in the background — its icon appears in the system tray (near the clock). If you don't see it, launch Ollama once from the Start menu — the next steps won't work without it.",
+        "de": "2.  Nach der Installation startet Ollama automatisch und läuft im Hintergrund — ihr Symbol erscheint in der Taskleiste (neben der Uhr). Falls nicht sichtbar, starte Ollama einmal über das Startmenü — ohne sie funktionieren die nächsten Schritte nicht.",
+        "fr": "2.  Une fois installé, Ollama démarre seul et fonctionne en arrière-plan — son icône apparaît dans la zone de notification (près de l'horloge). Si vous ne la voyez pas, lancez Ollama une fois depuis le menu Démarrer — les étapes suivantes ne fonctionneront pas sans elle.",
+        "es": "2.  Una vez instalado, Ollama se inicia solo y se ejecuta en segundo plano — su icono aparece en la bandeja del sistema (junto al reloj). Si no lo ves, abre Ollama una vez desde el menú Inicio — los siguientes pasos no funcionarán sin él.",
+        "zh": "2.  安装后 Ollama 会自动启动并在后台运行——其图标会出现在系统托盘（时钟附近）。如果没看到，请从开始菜单启动一次 Ollama——没有它后续步骤将无法进行。",
+        "tr": "2.  Kurulduktan sonra Ollama kendiliğinden başlar ve arka planda çalışır — simgesi sistem tepsisinde (saatin yanında) görünür. Görmüyorsanız Başlat menüsünden Ollama'yı bir kez çalıştırın — o olmadan sonraki adımlar işe yaramaz.",
+        "hy": "2.  Տեղադրումից հետո Ollama-ն ինքն է գործարկվում և աշխատում ֆոնային ռեժիմում՝ պատկերակը կհայտնվի համակարգային վահանակում (ժամացույցի կողքին)։ Եթե չեք տեսնում՝ մեկ անգամ գործարկեք Ollama-ն Մեկնարկի ցանկից․ առանց դրա հաջորդ քայլերը չեն աշխատի։",
     },
     "ref.step3": {
-        "ru": "3.  Нажмите «Проверить» внизу — модель появится в статусе.",
-        "en": "3.  Click \"Check\" below — the model will appear in the status.",
-        "de": "3.  Klicke unten auf „Prüfen“ — das Modell erscheint im Status.",
-        "fr": "3.  Cliquez sur « Vérifier » en bas — le modèle apparaîtra dans le statut.",
-        "es": "3.  Haz clic en «Comprobar» abajo — el modelo aparecerá en el estado.",
-        "zh": "3.  点击下方的「检查」——模型会出现在状态中。",
-        "tr": "3.  Aşağıdaki \"Kontrol Et\"e tıklayın — model durumda görünecek.",
-        "hy": "3.  Սեղմեք ստորև «Ստուգել»-ը՝ մոդելը կհայտնվի կարգավիճակում։",
+        "ru": "3.  Скачайте модель: вторая кнопка скопирует команду — вставьте её\n     в окно «Терминал» (Win+X → Терминал) и нажмите Enter. Модель весит\n     около 2 ГБ — загрузка может занять несколько минут, дождитесь,\n     пока команда закончится.",
+        "en": "3.  Download a model: the second button copies the command — paste it\n     into the Terminal window (Win+X → Terminal) and press Enter. The\n     model is about 2 GB — downloading can take several minutes, wait\n     for the command to finish.",
+        "de": "3.  Lade ein Modell herunter: die zweite Schaltfläche kopiert den Befehl —\n     füge ihn ins Terminal-Fenster ein (Win+X → Terminal) und drücke\n     Enter. Das Modell ist etwa 2 GB groß — der Download kann einige\n     Minuten dauern, warte, bis der Befehl abgeschlossen ist.",
+        "fr": "3.  Téléchargez un modèle : le deuxième bouton copie la commande —\n     collez-la dans la fenêtre Terminal (Win+X → Terminal) et appuyez\n     sur Entrée. Le modèle pèse environ 2 Go — le téléchargement peut\n     prendre plusieurs minutes, attendez que la commande se termine.",
+        "es": "3.  Descarga un modelo: el segundo botón copia el comando — pégalo\n     en la ventana de Terminal (Win+X → Terminal) y pulsa Intro. El\n     modelo pesa unos 2 GB — la descarga puede tardar varios minutos,\n     espera a que el comando termine.",
+        "zh": "3.  下载模型：第二个按钮会复制命令——将其粘贴到\n     「终端」窗口（Win+X → 终端）中并按 Enter。模型大小约\n     2 GB——下载可能需要几分钟，请等待命令执行完毕。",
+        "tr": "3.  Bir model indirin: ikinci düğme komutu kopyalar — bunu\n     Terminal penceresine yapıştırın (Win+X → Terminal) ve Enter'a\n     basın. Model yaklaşık 2 GB'dır — indirme birkaç dakika sürebilir,\n     komutun bitmesini bekleyin.",
+        "hy": "3.  Ներբեռնեք մոդել՝ երկրորդ կոճակը կպատճենի հրամանը՝ տեղադրեք այն\n     «Տերմինալ» պատուհանում (Win+X → Տերմինալ) և սեղմեք Enter։ Մոդելը\n     կշռում է շուրջ 2 ԳԲ՝ ներբեռնումը կարող է տևել մի քանի րոպե,\n     սպասեք, մինչև հրամանն ավարտվի։",
     },
     "ref.step4": {
-        "ru": "4.  Включите переключатель «Улучшать текст…».",
-        "en": "4.  Turn on the \"Refine text…\" switch.",
-        "de": "4.  Aktiviere den Schalter „Text verbessern…“.",
-        "fr": "4.  Activez le commutateur « Améliorer le texte… ».",
-        "es": "4.  Activa el interruptor «Mejorar texto…».",
-        "zh": "4.  打开「优化文本…」开关。",
-        "tr": "4.  \"Metni iyileştir…\" anahtarını açın.",
-        "hy": "4.  Միացրեք «Բարելավել տեքստը…» անջատիչը։",
+        "ru": "4.  Нажмите «Проверить» внизу. Пишет «не запущена» — проверьте шаг 2.\n     Пишет «моделей нет» — значит шаг 3 ещё не завершился, попробуйте\n     команду ещё раз.",
+        "en": "4.  Click \"Check\" below. If it says \"not running\" — see step 2.\n     If it says \"no models\" — step 3 hasn't finished yet, try the\n     command again.",
+        "de": "4.  Klicke unten auf „Prüfen“. Steht dort „läuft nicht“ — sieh dir\n     Schritt 2 an. Steht dort „keine Modelle“ — Schritt 3 ist noch\n     nicht fertig, versuche den Befehl erneut.",
+        "fr": "4.  Cliquez sur « Vérifier » en bas. Message « non lancé » — voyez\n     l'étape 2. Message « aucun modèle » — l'étape 3 n'est pas encore\n     terminée, réessayez la commande.",
+        "es": "4.  Haz clic en «Comprobar» abajo. Si dice «no está en ejecución» —\n     revisa el paso 2. Si dice «no hay modelos» — el paso 3 aún no ha\n     terminado, prueba el comando de nuevo.",
+        "zh": "4.  点击下方的「检查」。如果显示「未运行」——请查看第 2 步。\n     如果显示「没有模型」——说明第 3 步尚未完成，请重试该命令。",
+        "tr": "4.  Aşağıdaki \"Kontrol Et\"e tıklayın. \"Çalışmıyor\" yazıyorsa — 2.\n     adıma bakın. \"Model yok\" yazıyorsa — 3. adım henüz tamamlanmadı,\n     komutu tekrar deneyin.",
+        "hy": "4.  Սեղմեք ստորև «Ստուգել»-ը։ Եթե գրում է «չի աշխատում»՝ ստուգեք\n     2-րդ քայլը։ Եթե գրում է «մոդելներ չկան»՝ 3-րդ քայլը դեռ չի\n     ավարտվել, կրկին փորձեք հրամանը։",
+    },
+    "ref.step5": {
+        "ru": "5.  Включите переключатель «Улучшать текст…» ниже.",
+        "en": "5.  Turn on the \"Refine text…\" switch below.",
+        "de": "5.  Aktiviere den Schalter „Text verbessern…“ unten.",
+        "fr": "5.  Activez le commutateur « Améliorer le texte… » ci-dessous.",
+        "es": "5.  Activa el interruptor «Mejorar texto…» de abajo.",
+        "zh": "5.  打开下方的「使用本地 LLM 优化文本」开关。",
+        "tr": "5.  Aşağıdaki \"Metni iyileştir…\" anahtarını açın.",
+        "hy": "5.  Միացրեք ստորև «Բարելավել տեքստը…» անջատիչը։",
     },
     "ref.btn_ollama_site": {
         "ru": "🌐 Открыть сайт Ollama", "en": "🌐 Open Ollama's site", "de": "🌐 Ollama-Website öffnen",
@@ -686,27 +718,6 @@ STRINGS: dict[str, dict[str, str]] = {
         "zh": "将光标放在任意输入框中，按住快捷键，开始口述——\n文本会直接出现在那里。",
         "tr": "İmleci herhangi bir alana yerleştirin, kısayolu basılı tutun, konuşun —\nmetin tam orada belirecek.",
         "hy": "Կուրսորը դրեք ցանկացած դաշտում, պահեք դյուրանցումը, թելադրեք —\nտեքստը կհայտնվի հենց այնտեղ։",
-    },
-    "ob.welcome_p1": {
-        "ru": "Работает в любом приложении", "en": "Works in any application", "de": "Funktioniert in jeder Anwendung",
-        "fr": "Fonctionne dans n'importe quelle application", "es": "Funciona en cualquier aplicación",
-        "zh": "适用于任何应用程序", "tr": "Her uygulamada çalışır", "hy": "Աշխատում է ցանկացած հավելվածում",
-    },
-    "ob.welcome_p2": {
-        "ru": "Распознавание полностью на вашем компьютере (Whisper)",
-        "en": "Recognition runs entirely on your computer (Whisper)",
-        "de": "Erkennung läuft vollständig auf deinem Computer (Whisper)",
-        "fr": "La reconnaissance s'effectue entièrement sur votre ordinateur (Whisper)",
-        "es": "El reconocimiento se ejecuta totalmente en tu ordenador (Whisper)",
-        "zh": "识别完全在您的计算机上进行（Whisper）",
-        "tr": "Tanıma tamamen bilgisayarınızda çalışır (Whisper)",
-        "hy": "Ճանաչումն ամբողջությամբ կատարվում է ձեր համակարգչում (Whisper)",
-    },
-    "ob.welcome_p3": {
-        "ru": "Без облака, аккаунтов и подписок", "en": "No cloud, accounts, or subscriptions",
-        "de": "Keine Cloud, keine Konten, keine Abos", "fr": "Pas de cloud, de comptes ni d'abonnements",
-        "es": "Sin nube, cuentas ni suscripciones", "zh": "无云服务、账户或订阅",
-        "tr": "Bulut, hesap veya abonelik yok", "hy": "Ոչ ամպ, ոչ հաշիվներ, ոչ բաժանորդագրություններ",
     },
     "ob.mic_title": {
         "ru": "Микрофон", "en": "Microphone", "de": "Mikrofon", "fr": "Microphone",

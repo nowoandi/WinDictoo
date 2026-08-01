@@ -43,6 +43,35 @@ def find_old_installs() -> list[tuple[str, str, str]]:
     return found
 
 
+def purge_stale_autostart_entries() -> None:
+    """Each old name had its own HKCU Run-key autostart entry (same
+    mechanism as autostart.py, registered at runtime under that name) —
+    Inno Setup's generated uninstaller only removes what it itself put in
+    the registry at install time, so a key an old build wrote later via
+    its own "launch at startup" switch is never cleaned up automatically.
+    Delete any leftovers under every previous name; never raises.
+
+    Matches by value name only among an unrelated program's Run-key entries
+    would be a coincidence, not evidence — so this only deletes a value
+    whose *command* also mentions the old name (e.g. "...\\VoxWin.exe"),
+    the same way autostart.py's own command always mentions "WinDictoo"."""
+    import winreg
+
+    run_key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    for name, _ in _OLD_APPIDS:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, run_key, 0,
+                                winreg.KEY_QUERY_VALUE | winreg.KEY_SET_VALUE) as key:
+                try:
+                    command, _ = winreg.QueryValueEx(key, name)
+                except FileNotFoundError:
+                    continue
+                if name.lower() in command.lower():
+                    winreg.DeleteValue(key, name)
+        except OSError:
+            pass
+
+
 def uninstall(uninstall_cmd: str) -> bool:
     """Run a previous version's own uninstaller silently. Returns True if the
     process launched (not whether it succeeded — Inno's uninstaller doesn't

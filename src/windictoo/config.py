@@ -95,6 +95,12 @@ class Config:
     # version doesn't nag again on every startup; cleared once they update.
     skipped_update_version: str = ""
 
+    # One-shot cleanup of autostart leftovers from old app names (VoxWin,
+    # WnDic) — only ever useful on a machine upgraded across renames, a
+    # dwindling population, so it runs once and never again rather than on
+    # every single launch forever.
+    legacy_autostart_cleanup_done: bool = False
+
     @classmethod
     def load(cls) -> "Config":
         if CONFIG_PATH.exists():

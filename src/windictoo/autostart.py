@@ -34,6 +34,30 @@ def is_enabled() -> bool:
         return False
 
 
+def remove_legacy_startup_shortcut() -> None:
+    """Older installers (pre-1.7.2) offered a separate "launch at startup"
+    checkbox that dropped a Startup-folder shortcut independently of the
+    Run-key toggle above — anyone who'd ticked both ended up with two
+    WinDictoo entries in Task Manager's Startup tab. That installer task is
+    gone; this deletes any shortcut it already left behind, so the Run key
+    is the only autostart mechanism going forward. Safe to call every
+    launch — a no-op once the shortcut is gone."""
+    import os
+
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        # An empty/missing APPDATA must not fall back to a cwd-relative
+        # path — that could point anywhere depending on where the process
+        # happened to be launched from.
+        return
+    startup_dir = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+    shortcut = startup_dir / "WinDictoo.lnk"
+    try:
+        shortcut.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def set_enabled(enabled: bool) -> str | None:
     """Returns None on success or an error message."""
     import winreg
