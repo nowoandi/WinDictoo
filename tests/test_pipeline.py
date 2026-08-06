@@ -165,6 +165,104 @@ def test_audio_resample_preserves_duration_and_signal():
     assert audio._resample(np.zeros(0, dtype=np.float32), 48000, 16000).size == 0
 
 
+def test_quick_tap_never_strands_an_open_stream():
+    """Reproduces the 0xc0000005 crash: stop() arriving while start() is still
+    opening its (slow) stream.
+
+    The old code set is_recording before opening, so stop() saw _stream is
+    None, closed nothing, and start() then assigned a live stream nobody would
+    ever close. Python collected that orphan while PortAudio still held its
+    callback pointer — the next audio block jumped into freed memory.
+
+    Here the open is deliberately slowed and stop() is fired in the middle.
+    Every stream that gets opened must also get closed.
+    """
+    import threading
+    import time
+
+    from windictoo import audio
+
+    opened, closed = [], []
+
+    class FakeStream:
+        def __init__(self, rate):
+            self.rate = rate
+            opened.append(self)
+
+        def start(self):
+            time.sleep(0.25)  # a real slow open (probe + retry)
+
+        def stop(self):
+            pass
+
+        def close(self):
+            closed.append(self)
+
+    rec = audio.Recorder()
+    rec._make_stream = lambda device, rate: (lambda s: (s.start(), s)[1])(FakeStream(rate))
+
+    threading.Thread(target=lambda: rec.start(device=None), daemon=True).start()
+    time.sleep(0.05)  # land squarely inside the open
+    with pytest.raises(audio.EmptyRecording):
+        rec.stop()
+
+    assert opened, "the test must actually open a stream to be meaningful"
+    assert len(closed) == len(opened), (
+        f"stranded stream: opened {len(opened)}, closed {len(closed)}"
+    )
+    assert rec._stream is None
+    assert rec.is_recording is False
+
+
+def test_failed_open_does_not_wedge_the_recorder():
+    """A device that fails to open must leave is_recording False. It used to
+    stay True, so every later start() returned at the guard and dictation was
+    dead until the app restarted."""
+    from windictoo import audio
+
+    rec = audio.Recorder()
+
+    def always_fails(device, rate):
+        raise RuntimeError("no such device")
+
+    rec._make_stream = always_fails
+    with pytest.raises(Exception):
+        rec.start(device=None)
+    assert rec.is_recording is False, "a failed open must not wedge the recorder"
+    assert rec._stream is None
+
+
+def test_sample_rate_is_cached_per_device():
+    """A device that rejects 16 kHz must be probed once, not on every
+    recording — that probe cost hundreds of ms and widened the race window."""
+    from windictoo import audio
+
+    rec = audio.Recorder()
+    attempts = []
+
+    class FakeStream:
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    def picky(device, rate):
+        attempts.append(rate)
+        if rate == audio.SAMPLE_RATE:
+            raise RuntimeError("Invalid sample rate")
+        return FakeStream()
+
+    rec._make_stream = picky
+    rec._rate_cache[7] = 48000  # already learned
+    stream, rate = rec._open_stream(7)
+    assert rate == 48000
+    assert attempts == [48000], f"cached rate should be used directly, got {attempts}"
+
+
 def test_split_uninstall_command():
     from windictoo import oldversions
 
