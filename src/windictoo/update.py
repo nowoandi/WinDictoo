@@ -42,6 +42,12 @@ def is_newer(remote: str, current: str) -> bool:
     return r > c
 
 
+def _pick_asset(assets: list[dict]) -> dict | None:
+    """Choose the download asset: the installer if present, else any exe."""
+    exes = [a for a in assets if a.get("name", "").endswith(".exe")]
+    return next((a for a in exes if "Setup" in a.get("name", "")), exes[0] if exes else None)
+
+
 def check_for_update(current_version: str) -> UpdateInfo | None:
     try:
         with httpx.Client(timeout=_TIMEOUT, follow_redirects=True) as client:
@@ -54,10 +60,7 @@ def check_for_update(current_version: str) -> UpdateInfo | None:
         if not is_newer(version, current_version):
             return None
 
-        asset = next(
-            (a for a in data.get("assets", []) if a.get("name", "").endswith(".exe")),
-            None,
-        )
+        asset = _pick_asset(data.get("assets", []))
         if asset is None:
             return None
 

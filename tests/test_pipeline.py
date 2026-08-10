@@ -307,6 +307,17 @@ def test_update_is_newer():
     assert update.is_newer("garbage", "1.3.0") is False  # never crash on a bad tag
 
 
+def test_update_prefers_setup_installer_asset():
+    setup = {"name": "WinDictoo-Setup-1.7.3.exe"}
+    portable = {"name": "WinDictoo-1.7.3-portable.exe"}
+    zip_ = {"name": "WinDictoo-1.7.3-win64.zip"}
+    # The installer wins regardless of asset order in the release.
+    assert update._pick_asset([zip_, portable, setup]) is setup
+    # Without an installer any exe will do; a zip alone is not runnable.
+    assert update._pick_asset([zip_, portable]) is portable
+    assert update._pick_asset([zip_]) is None
+
+
 def test_update_check_never_raises_when_offline():
     # Port 1 is not a routable API endpoint; this must fail closed (None),
     # not raise — an update check must never be able to break startup.

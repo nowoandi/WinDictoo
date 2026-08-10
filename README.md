@@ -18,20 +18,24 @@ This is a Windows-native reimagining of [VoxLocal](https://github.com/romarayt/V
 Several color themes to choose from (the swatch in the header) — dark,
 geek-black, light-green, light-blue, dusty rose, chocolate & gold.
 
-## Download & run (no install)
+## Install
 
-**[⬇ Download the latest release](https://github.com/nowoandi/WinDictoo/releases/latest)** —
-ready-made builds, no Python and no build step required:
+**[⬇ Download the installer](https://github.com/nowoandi/WinDictoo/releases/latest)** —
+grab **`WinDictoo-Setup-<version>.exe`** from the release page and
+double-click it: a minute later WinDictoo is in your Start menu and on
+the desktop. No terminal, no admin rights, no Python — everything is
+bundled. Updates install the same way on top (or right from the app:
+Settings → Privacy → "Check for updates").
+
+The same page also has no-install variants, if you prefer those:
 
 - **`WinDictoo-<version>-portable.exe`** — a single self-contained file:
-  download, double-click, dictate. Nothing is installed; it unpacks itself
-  on every launch, so startup takes a little longer.
+  run it and dictate; slower to start since it unpacks itself on every
+  launch.
 - **`WinDictoo-<version>-win64.zip`** — the same app as a folder: unzip
-  anywhere and run `WinDictoo.exe` inside. Starts much faster —
-  recommended for everyday use.
+  and run the `WinDictoo.exe` inside.
 
-Everything is already bundled (Python runtime, Whisper engine, UI). The
-only thing downloaded later is the speech model (~500 MB) on first run.
+The only later download is the speech model (~500 MB) on first run.
 
 ## What it does
 
