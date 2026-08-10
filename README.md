@@ -18,6 +18,21 @@ This is a Windows-native reimagining of [VoxLocal](https://github.com/romarayt/V
 Several color themes to choose from (the swatch in the header) — dark,
 geek-black, light-green, light-blue, dusty rose, chocolate & gold.
 
+## Download & run (no install)
+
+**[⬇ Download the latest release](https://github.com/nowoandi/WinDictoo/releases/latest)** —
+ready-made builds, no Python and no build step required:
+
+- **`WinDictoo-<version>-portable.exe`** — a single self-contained file:
+  download, double-click, dictate. Nothing is installed; it unpacks itself
+  on every launch, so startup takes a little longer.
+- **`WinDictoo-<version>-win64.zip`** — the same app as a folder: unzip
+  anywhere and run `WinDictoo.exe` inside. Starts much faster —
+  recommended for everyday use.
+
+Everything is already bundled (Python runtime, Whisper engine, UI). The
+only thing downloaded later is the speech model (~500 MB) on first run.
+
 ## What it does
 
 - **System-tray app** with a global hotkey — **Ctrl + Space** by default:
@@ -54,10 +69,14 @@ geek-black, light-green, light-blue, dusty rose, chocolate & gold.
 
 ## Requirements
 
-- Windows 10/11, Python 3.13+, [uv](https://docs.astral.sh/uv/).
-- ~500 MB for the `small` model (downloaded automatically on first run).
+- Windows 10/11; ~500 MB for the `small` model (downloaded automatically
+  on first run).
 - Optional: [Ollama](https://ollama.com) with an instruct model (e.g.
   `ollama pull qwen2.5:3b`).
+- Python 3.13+ and [uv](https://docs.astral.sh/uv/) — **only for building
+  from source**. The ready builds from
+  [Releases](https://github.com/nowoandi/WinDictoo/releases/latest) need
+  neither.
 
 ## Running it
 
