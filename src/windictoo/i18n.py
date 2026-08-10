@@ -229,14 +229,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "Sistemde birden fazla mikrofon varsa kullanışlıdır (örneğin dizüstü bilgisayarın dahili mikrofonu ve kulaklık).",
         "hy": "Օգտակար է, եթե համակարգն ունի մի քանի խոսափող (օրինակ՝ նոութբուքի ներկառուցված և ականջակալի խոսափողը)։",
     },
-    "gen.card_theme": {
-        "ru": "Тема оформления", "en": "Color theme", "de": "Farbthema", "fr": "Thème de couleur",
-        "es": "Tema de color", "zh": "配色主题", "tr": "Renk teması", "hy": "Գունային թեմա",
-    },
-    "gen.card_ui_language": {
-        "ru": "Язык интерфейса", "en": "Interface language", "de": "Oberflächensprache",
-        "fr": "Langue de l'interface", "es": "Idioma de la interfaz", "zh": "界面语言",
-        "tr": "Arayüz dili", "hy": "Ինտերֆեյսի լեզու",
+    "gen.card_appearance": {
+        "ru": "Внешний вид и язык", "en": "Appearance & language", "de": "Aussehen & Sprache",
+        "fr": "Apparence et langue", "es": "Apariencia e idioma", "zh": "外观与语言",
+        "tr": "Görünüm ve dil", "hy": "Տեսք և լեզու",
     },
     "gen.card_app": {
         "ru": "Приложение", "en": "Application", "de": "Anwendung", "fr": "Application",

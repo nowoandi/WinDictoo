@@ -819,6 +819,32 @@ class WinDictooGUI:
         self._tab_privacy(tabs.tab(t_privacy))
         _recolor_tabs()
 
+        # Fit the height to the tallest tab, capped to the monitor's work
+        # area: a fixed 720 clipped the bottom of the General tab once it
+        # grew to six cards, silently hiding the autostart switch.
+        win.update_idletasks()
+        try:
+            import ctypes
+
+            scale = ctk.ScalingTracker.get_window_scaling(win)
+            tallest = max(
+                tabs.tab(n).winfo_reqheight()
+                for n in (t_general, t_recognition, t_refinement, t_privacy)
+            )
+
+            class _RECT(ctypes.Structure):
+                _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                            ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+            work = _RECT()
+            ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(work), 0)
+            need = int(tallest / scale) + 162  # + tab bar and paddings
+            cap = int((work.bottom - work.top - 60) / scale)
+            win.geometry(f"560x{max(600, min(need, cap))}")
+        except Exception:  # noqa: BLE001 - sizing must never break Settings
+            win.geometry("560x760")
+        win.minsize(520, 520)
+
     def _card(self, parent, title: str) -> ctk.CTkFrame:
         outer = ctk.CTkFrame(parent, fg_color=theme.CARD_HI, corner_radius=theme.RADIUS_CARD,
                              border_width=1, border_color=theme.STROKE)
@@ -878,22 +904,24 @@ class WinDictooGUI:
                      font=_font(11), text_color=theme.MUTED, wraplength=460,
                      justify="left").pack(anchor="w", padx=14, pady=(0, 12))
 
-        c_theme = self._card(tab, i18n.t("gen.card_theme"))
+        # Theme swatch and UI language share one row: six stacked cards no
+        # longer fit the window and pushed the autostart card out of view.
+        c_look = self._card(tab, i18n.t("gen.card_appearance"))
+        look = ctk.CTkFrame(c_look, fg_color="transparent")
+        look.pack(fill="x", padx=14, pady=(2, 12))
         settings_swatch = ctk.CTkButton(
-            c_theme, text="", width=40, height=40, corner_radius=theme.RADIUS_WIDGET,
+            look, text="", width=40, height=28, corner_radius=theme.RADIUS_WIDGET,
             border_width=1, border_color=theme.STROKE,
             fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
         )
         settings_swatch.configure(command=lambda: self._open_theme_picker(settings_swatch))
-        settings_swatch.pack(anchor="w", padx=14, pady=(2, 12))
-
-        c_lang = self._card(tab, i18n.t("gen.card_ui_language"))
+        settings_swatch.pack(side="left")
         uv = ctk.StringVar(value=next(l[0] for l in i18n.UI_LANGS if l[1] == self.cfg.ui_language))
-        ctk.CTkOptionMenu(c_lang, values=[l[0] for l in i18n.UI_LANGS], variable=uv, fg_color=theme.CARD,
+        ctk.CTkOptionMenu(look, values=[l[0] for l in i18n.UI_LANGS], variable=uv, fg_color=theme.CARD,
                           text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
                           button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
                           command=lambda v: self._set_ui_language(v)).pack(
-            fill="x", padx=14, pady=(2, 12))
+            side="left", fill="x", expand=True, padx=(12, 0))
 
         c3 = self._card(tab, i18n.t("gen.card_app"))
         auto = ctk.CTkSwitch(c3, text=i18n.t("gen.autostart_switch"), font=_font(12),
