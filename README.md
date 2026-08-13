@@ -27,6 +27,19 @@ the desktop. No terminal, no admin rights, no Python — everything is
 bundled. Updates install the same way on top (or right from the app:
 Settings → Privacy → "Check for updates").
 
+### Windows will show a warning — that's expected
+
+The first time you run the downloaded file, a blue **"Windows protected
+your PC"** dialog appears. Click the small **More info** link under the
+text, then the **Run anyway** button.
+
+It is not a virus and not a bug. Windows greets **every** program whose
+author hasn't bought a publisher certificate (roughly €300–500 a year)
+this way. WinDictoo doesn't buy one — the source is open, so anyone can
+see what's inside. You'll see the warning **once per computer**: later
+updates are installed by the app itself (Settings → Privacy → "Check for
+updates") and never show this dialog.
+
 The same page also has no-install variants, if you prefer those:
 
 - **`WinDictoo-<version>-portable.exe`** — a single self-contained file:
