@@ -40,13 +40,14 @@ see what's inside. You'll see the warning **once per computer**: later
 updates are installed by the app itself (Settings → Privacy → "Check for
 updates") and never show this dialog.
 
-The same page also has no-install variants, if you prefer those:
+The same page also has a no-install variant, if you prefer:
 
-- **`WinDictoo-<version>-portable.exe`** — a single self-contained file:
-  run it and dictate; slower to start since it unpacks itself on every
-  launch.
 - **`WinDictoo-<version>-win64.zip`** — the same app as a folder: unzip
   and run the `WinDictoo.exe` inside.
+
+The single-file portable build is no longer published. It unpacked its
+whole ~108 MB into a temporary folder on every launch, which made starting
+up slow and jerky, and it was easy to mistake for the installer.
 
 The only later download is the recognition model on first run — from
 216 MB (GigaAM v3) to 3 GB (Whisper large-v3), depending on your pick.

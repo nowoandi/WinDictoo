@@ -43,9 +43,29 @@ def is_newer(remote: str, current: str) -> bool:
 
 
 def _pick_asset(assets: list[dict]) -> dict | None:
-    """Choose the download asset: the installer if present, else any exe."""
-    exes = [a for a in assets if a.get("name", "").endswith(".exe")]
-    return next((a for a in exes if "Setup" in a.get("name", "")), exes[0] if exes else None)
+    """Choose the download asset: the installer if present, else any exe.
+
+    Builds up to 1.7.3 had no such preference — they took the first .exe the
+    API returned. GitHub returns assets sorted by name, compared without
+    regard to case, so "WinDictoo-1.7.4-portable.exe" came before
+    "WinDictoo-Setup-1.7.4.exe" (a digit sorts ahead of any letter). Those
+    builds therefore downloaded the portable copy, saved it as
+    "…-Setup-….exe" and ran it: it installed nothing, so the same update was
+    offered again at every start, forever, and the fix could never arrive
+    through the mechanism that was broken.
+
+    The rescue is in the *name*: installer assets are published as
+    "WinDictoo-<version>-Install-Setup.exe", which sorts ahead of "portable"
+    either way, so even an unpatched 1.7.3 now picks up a real installer.
+    Keep that naming (see packaging/WinDictoo-Setup.iss). This function is
+    the belt to that pair of braces, and accepts either wording.
+    """
+    exes = [a for a in assets if a.get("name", "").lower().endswith(".exe")]
+    installers = [
+        a for a in exes
+        if "setup" in a.get("name", "").lower() or "install" in a.get("name", "").lower()
+    ]
+    return installers[0] if installers else (exes[0] if exes else None)
 
 
 def check_for_update(current_version: str) -> UpdateInfo | None:

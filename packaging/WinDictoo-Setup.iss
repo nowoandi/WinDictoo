@@ -29,7 +29,12 @@ DisableProgramGroupPage=yes
 DisableReadyPage=yes
 ShowLanguageDialog=no
 OutputDir=..\dist
-OutputBaseFilename=WinDictoo-Setup-{#AppVersion}
+; Name matters: GitHub sorts release assets by name (case-insensitively) and
+; WinDictoo up to 1.7.3 downloaded the first .exe it was given. "Installer"
+; sorts ahead of "portable", so even those old builds get a real installer.
+; Releases also ship no portable .exe any more, which makes this the only
+; .exe on the page — belt and braces. Do not rename back to WinDictoo-Setup-*.
+OutputBaseFilename=WinDictoo-{#AppVersion}-Installer
 SetupIconFile=..\assets\windictoo.ico
 UninstallDisplayIcon={app}\WinDictoo.exe
 UninstallDisplayName=WinDictoo

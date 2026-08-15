@@ -725,6 +725,45 @@ def test_lazy_mode_keeps_the_stream_but_still_releases_it():
     assert rec._release_timer is None, "the pending close timer must be cancelled"
 
 
+# ----------------------------------------------------------- update asset choice
+
+
+def test_installer_asset_name_sorts_ahead_of_any_other_exe():
+    """The rescue for builds up to 1.7.3 rests entirely on this ordering.
+
+    Those builds took the first .exe the API returned, and GitHub returns
+    assets sorted by name compared without regard to case. Under the old
+    naming "WinDictoo-1.7.4-portable.exe" beat "WinDictoo-Setup-1.7.4.exe" —
+    a digit sorts ahead of any letter — so they downloaded the portable copy,
+    ran it, installed nothing, and offered the same update again forever.
+    """
+    names = ["WinDictoo-1.8.0-win64.zip", "WinDictoo-1.8.0-portable.exe",
+             "WinDictoo-1.8.0-Installer.exe"]
+    first_exe = sorted((n for n in names if n.lower().endswith(".exe")), key=str.lower)[0]
+    assert first_exe == "WinDictoo-1.8.0-Installer.exe"
+
+
+def test_installer_is_preferred_over_any_other_exe():
+    picked = update._pick_asset([
+        {"name": "WinDictoo-1.8.0-portable.exe"},
+        {"name": "WinDictoo-1.8.0-Installer.exe"},
+        {"name": "WinDictoo-1.8.0-win64.zip"},
+    ])
+    assert picked["name"] == "WinDictoo-1.8.0-Installer.exe"
+
+    # The older "Setup" wording must keep working — releases up to 1.8.0 use it.
+    legacy = update._pick_asset([
+        {"name": "WinDictoo-1.7.4-portable.exe"},
+        {"name": "WinDictoo-Setup-1.7.4.exe"},
+    ])
+    assert legacy["name"] == "WinDictoo-Setup-1.7.4.exe"
+
+
+def test_no_exe_at_all_is_not_a_crash():
+    assert update._pick_asset([{"name": "WinDictoo-1.8.0-win64.zip"}]) is None
+    assert update._pick_asset([]) is None
+
+
 # ------------------------------------------------ refinement: privacy & reasoning
 
 
