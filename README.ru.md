@@ -137,6 +137,23 @@ powershell -ExecutionPolicy Bypass -File packaging/install_shortcuts.ps1  # яр
 Первое распознавание скачает выбранную модель в
 `%LOCALAPPDATA%\WinDictoo\models`.
 
+### Сборка релиза
+
+```powershell
+& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=1.8.0 packaging\WinDictoo-Setup.iss
+tar -a -c -f dist\WinDictoo-1.8.0-win64.zip -C dist WinDictoo
+```
+
+Архив собирать через `tar`, а **не** `Compress-Archive`. Windows PowerShell
+5.1 работает на .NET Framework, где и `Compress-Archive`, и
+`ZipFile.CreateFromDirectory` пишут имена записей через обратный слэш.
+Формат ZIP требует прямого, и распаковщики на таком архиве часто выдают
+плоскую кучу файлов со странными именами вместо папки — а `.exe` в ней
+не найти.
+
+Выкладывать ровно два файла: установщик и этот архив. Портативного `.exe`
+быть не должно — почему, написано в `packaging/WinDictoo-Setup.iss`.
+
 ### Запуск из исходников (для разработки)
 
 ```powershell
