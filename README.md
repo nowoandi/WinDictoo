@@ -28,11 +28,11 @@ geek-black, light-green, light-blue, dusty rose, chocolate & gold.
 ## Install
 
 **[⬇ Download the installer](https://github.com/nowoandi/WinDictoo/releases/latest)** —
-grab **`WinDictoo-Setup-<version>.exe`** from the release page and
-double-click it: a minute later WinDictoo is in your Start menu and on
-the desktop. No terminal, no admin rights, no Python — everything is
-bundled. Updates install the same way on top (or right from the app:
-Settings → Privacy → "Check for updates").
+on that page, under **Assets**, take the file ending in
+**`-Installer.exe`** and double-click it: a minute later WinDictoo is in
+your Start menu and on the desktop. No terminal, no admin rights, no
+Python — everything is bundled. Updates install the same way on top (or
+right from the app: Settings → Privacy → "Check for updates").
 
 ### Windows will show a warning — that's expected
 
