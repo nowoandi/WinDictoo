@@ -152,10 +152,17 @@ class Dictation:
                 self._target_hwnd,
                 self.cfg.insertion_method,
             )
-            if status == "pasted":
+            # "typed" is the default path (SendInput straight into the field)
+            # and used to fall into the else below, so every successful
+            # dictation ended with "the text is in the clipboard, paste it
+            # with Ctrl+V" — advice that was both wrong and impossible to
+            # follow, since that path never touches the clipboard.
+            if status in ("typed", "pasted"):
                 self._set_state(State.DONE)
-            else:
+            elif status == "clipboard_only":
                 self._set_state(State.DONE, i18n.t("app.clipboard_paste_hint"))
+            else:
+                self._set_state(State.ERROR, i18n.t("app.insert_failed"))
             self._reset_later()
         except Exception as exc:  # noqa: BLE001
             log.exception("pipeline failed")

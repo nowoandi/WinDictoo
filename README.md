@@ -86,6 +86,10 @@ The only later download is the recognition model on first run — from
   one-time download of the Whisper model from Hugging Face on first run.
 - Ollama is only ever contacted over loopback (`127.0.0.1` / `localhost` /
   `::1`); external addresses are rejected and HTTP redirects are refused.
+  Models Ollama tags `:cloud` are refused too — those run on Ollama's own
+  servers, so the address check alone would pass while the transcript still
+  left the machine. Picking one disables refinement (the raw transcript is
+  used) and says so in Settings → Refinement.
 - **No analytics, telemetry, or tracking.**
 - The log never contains audio, dictation text, or clipboard contents.
 

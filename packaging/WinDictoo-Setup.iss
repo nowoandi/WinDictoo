@@ -1,7 +1,7 @@
 ; WinDictoo installer (Inno Setup 6).
 ; Build from the repo root, after building the folder app with WinDictoo.spec:
 ;   uv run pyinstaller packaging/WinDictoo.spec --noconfirm --distpath dist --workpath build
-;   & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=1.7.3 packaging\WinDictoo-Setup.iss
+;   & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" /DAppVersion=1.8.0 packaging\WinDictoo-Setup.iss
 ; Output: dist\WinDictoo-Setup-<version>.exe
 ;
 ; Design goals: an installer for non-technical users — no admin rights,

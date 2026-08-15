@@ -1074,23 +1074,38 @@ class WinDictooGUI:
             self.ollama_status.configure(text=i18n.t("ref.checking"))
 
             def work() -> None:
-                names: list[str] = []
+                local: list[str] = []
                 try:
                     names = refine.list_models(ep.get())
-                    msg = i18n.t("ref.available", names=", ".join(names)) if names else \
+                    # Ollama lists its cloud-routed models alongside the local
+                    # ones. They are refused at dictation time (refine.refine),
+                    # so keep them out of the "available" list and say why.
+                    local = [n for n in names if not refine.is_cloud_model(n)]
+                    cloud = [n for n in names if refine.is_cloud_model(n)]
+                    msg = i18n.t("ref.available", names=", ".join(local)) if local else \
                         i18n.t("ref.no_models")
+                    if cloud:
+                        msg += "\n" + i18n.t("ref.cloud_in_list", names=", ".join(cloud))
                 except refine.NonLocalEndpoint:
                     msg = i18n.t("ref.non_local")
                 except Exception as exc:  # noqa: BLE001
                     msg = i18n.t("ref.not_running", error=exc)
 
                 def apply() -> None:
+                    chosen = self.ollama_model.get().strip()
+                    if chosen and refine.is_cloud_model(chosen):
+                        # Whatever else the check found, this is the thing the
+                        # user needs to read.
+                        self.ollama_status.configure(
+                            text=i18n.t("ref.cloud_blocked", name=chosen))
+                        return
                     self.ollama_status.configure(text=msg)
                     # Convenience: fill the model field with the first found
-                    # model so a novice doesn't have to type it by hand.
-                    if names and not self.ollama_model.get().strip():
-                        self.ollama_model.insert(0, names[0])
-                        self.cfg.ollama_model = names[0]
+                    # model so a novice doesn't have to type it by hand — a
+                    # local one, never a cloud model.
+                    if local and not chosen:
+                        self.ollama_model.insert(0, local[0])
+                        self.cfg.ollama_model = local[0]
                         self.cfg.save()
 
                 self.root.after(0, apply)

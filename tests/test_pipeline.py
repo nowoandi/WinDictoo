@@ -725,6 +725,157 @@ def test_lazy_mode_keeps_the_stream_but_still_releases_it():
     assert rec._release_timer is None, "the pending close timer must be cancelled"
 
 
+# ------------------------------------------------ refinement: privacy & reasoning
+
+
+def test_cloud_models_are_recognised():
+    assert refine.is_cloud_model("glm-5.2:cloud")
+    assert refine.is_cloud_model("  GPT-OSS:Cloud  ")
+    assert not refine.is_cloud_model("qwen2.5:3b")
+    assert not refine.is_cloud_model("cloudy-model:latest")
+
+
+def test_cloud_model_is_refused_without_sending_anything(monkeypatch):
+    """The loopback check cannot catch this: Ollama accepts a ':cloud' model
+    on 127.0.0.1 and forwards it to its own servers. So the transcript must
+    never reach the socket in the first place."""
+    def explode(*a, **k):
+        raise AssertionError("a request was made for a cloud model")
+
+    monkeypatch.setattr(refine.httpx, "Client", explode)
+
+    out, fell_back = refine.refine(
+        "секретный текст", "http://127.0.0.1:11434", "glm-5.2:cloud", 20.0
+    )
+    assert out == "секретный текст" and fell_back is True
+
+
+class _FakeResponse:
+    def __init__(self, payload, status=200):
+        self._payload, self.status_code = payload, status
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise refine.httpx.HTTPStatusError(
+                f"HTTP {self.status_code}", request=None, response=None
+            )
+
+    def json(self):
+        return self._payload
+
+
+def _fake_ollama(monkeypatch, responses):
+    """Swap httpx.Client for one serving `responses`; returns the sent payloads."""
+    sent: list[dict] = []
+    queue = list(responses)
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, json):
+            sent.append(json)
+            return queue.pop(0)
+
+    monkeypatch.setattr(refine.httpx, "Client", lambda **kw: _FakeClient())
+    return sent
+
+
+def test_reasoning_is_switched_off_in_the_request(monkeypatch):
+    """Measured against qwen3.6: with reasoning left on, the model spent all
+    256 tokens narrating and returned an empty answer; with think=false it
+    answered correctly in 12."""
+    sent = _fake_ollama(monkeypatch, [
+        _FakeResponse({"message": {"content": "Привет, как дела?"}}),
+    ])
+
+    out, fell = refine.refine("привет как дела", "http://127.0.0.1:11434", "qwen3:8b", 20.0)
+    assert fell is False and out == "Привет, как дела?"
+    assert sent[0]["think"] is False, "reasoning must be requested off"
+
+
+def test_older_server_rejecting_think_is_retried_plainly(monkeypatch):
+    """Not every Ollama build knows the key; refinement must not be lost to it."""
+    sent = _fake_ollama(monkeypatch, [
+        _FakeResponse({"error": "unknown field"}, status=400),
+        _FakeResponse({"message": {"content": "Привет, как дела?"}}),
+    ])
+
+    out, fell = refine.refine("привет как дела", "http://127.0.0.1:11434", "old:1b", 20.0)
+    assert fell is False and out == "Привет, как дела?"
+    assert sent[0]["think"] is False and "think" not in sent[1]
+
+
+def test_reasoning_only_reply_falls_back(monkeypatch):
+    """The exact qwen3.6 failure: everything in "thinking", nothing in
+    "content". Must fall back to the transcript, not paste an empty string."""
+    _fake_ollama(monkeypatch, [
+        _FakeResponse({"message": {"content": "", "thinking": "Let me consider…"}}),
+    ])
+
+    out, fell = refine.refine("привет как дела", "http://127.0.0.1:11434", "qwen3:8b", 20.0)
+    assert fell is True and out == "привет как дела"
+
+
+def test_reasoning_narration_is_stripped():
+    assert refine.strip_reasoning("<think>Hmm, what do they mean?</think>Привет, мир.") \
+        == "Привет, мир."
+    assert refine.strip_reasoning("<THINKING>a</THINKING> Text") == "Text"
+    # Ran out of tokens mid-thought: no answer ever arrived, so nothing is
+    # usable — better empty (which validate() rejects) than narration pasted
+    # into the user's document.
+    assert refine.strip_reasoning("<think>still thinking and thinking") == ""
+    assert refine.strip_reasoning("Чи​стый‍ текст") == "Чистый текст"
+
+
+def test_reasoning_model_reply_survives_validation():
+    """Regression for the whole point of stripping: a long <think> block used
+    to push the reply past validate()'s length guard, so refinement silently
+    fell back on exactly the models people install first (qwen3, deepseek-r1)."""
+    original = "привет как дела"
+    reply = ("<think>" + "The user dictated a greeting. " * 30 + "</think>"
+             + "Привет, как дела?")
+    assert refine.validate(original, reply)[0] is False, "test premise: raw reply is rejected"
+    assert refine.validate(original, refine.strip_reasoning(reply))[0] is True
+
+
+# ------------------------------------------------------- insertion status text
+
+
+def test_successful_typing_does_not_claim_the_text_is_in_the_clipboard(monkeypatch):
+    """Typing is the default insertion path and never touches the clipboard,
+    yet every successful dictation used to end with "the text is in the
+    clipboard, paste it with Ctrl+V"."""
+    from windictoo import app as app_mod
+    from windictoo import insert as insert_mod
+
+    d = app_mod.Dictation(Config(refine_enabled=False))
+    monkeypatch.setattr(d.transcriber, "transcribe", lambda audio: ("Привет.", "ru"))
+    monkeypatch.setattr(insert_mod, "insert", lambda *a, **k: "typed")
+
+    d._pipeline(np.zeros(16000, dtype=np.float32))
+    assert d.state is app_mod.State.DONE
+    assert d.message == "", f"claimed something about the clipboard: {d.message!r}"
+
+
+def test_clipboard_only_still_tells_the_user_to_paste(monkeypatch):
+    """The hint is right in the one case it was written for: the text reached
+    the clipboard but the synthetic Ctrl+V did not land."""
+    from windictoo import app as app_mod
+    from windictoo import insert as insert_mod
+
+    d = app_mod.Dictation(Config(refine_enabled=False))
+    monkeypatch.setattr(d.transcriber, "transcribe", lambda audio: ("Привет.", "ru"))
+    monkeypatch.setattr(insert_mod, "insert", lambda *a, **k: "clipboard_only")
+
+    d._pipeline(np.zeros(16000, dtype=np.float32))
+    assert d.state is app_mod.State.DONE
+    assert d.message == i18n.t("app.clipboard_paste_hint")
+
+
 # ------------------------------------------------------------ engine catalogue
 
 
