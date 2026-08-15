@@ -1,10 +1,17 @@
 # WinDictoo
 
-🇬🇧 **English** | 🇷🇺 [Русский](README.ru.md)
+This page: 🇬🇧 **English** | 🇷🇺 [Русский](README.ru.md)
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6)
+![Interface: 8 languages](https://img.shields.io/badge/interface-8%20languages-brightgreen)
+
+**Interface languages:** Русский · English · Deutsch · Français · Español ·
+中文 · Türkçe · Հայերեն.
+**Speech recognition:** Russian (GigaAM v3), 25 European languages
+(Parakeet v3), or 99 languages with Whisper — see
+[Recognition models](#recognition-models).
 
 **Local voice dictation for Windows.** Hold a hotkey, speak, release —
 the recognized text is inserted into the focused field. Your voice never

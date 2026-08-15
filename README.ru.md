@@ -1,10 +1,17 @@
 # WinDictoo
 
-🇬🇧 [English](README.md) | 🇷🇺 **Русский**
+Эта страница: 🇬🇧 [English](README.md) | 🇷🇺 **Русский**
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-blue)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6)
+![Интерфейс: 8 языков](https://img.shields.io/badge/%D0%B8%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81-8%20%D1%8F%D0%B7%D1%8B%D0%BA%D0%BE%D0%B2-brightgreen)
+
+**Языки интерфейса:** Русский · English · Deutsch · Français · Español ·
+中文 · Türkçe · Հայերեն.
+**Распознавание речи:** русский (GigaAM v3), 25 европейских языков
+(Parakeet v3) или 99 языков через Whisper — см.
+[Модели распознавания](#модели-распознавания).
 
 **Локальный голосовой ввод для Windows.** Зажми горячую клавишу, продиктуй,
 отпусти — распознанный текст вставится в активное поле. Речь не покидает
