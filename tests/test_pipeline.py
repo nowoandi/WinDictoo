@@ -176,6 +176,10 @@ def test_quick_tap_never_strands_an_open_stream():
 
     Here the open is deliberately slowed and stop() is fired in the middle.
     Every stream that gets opened must also get closed.
+
+    Pinned to mic_mode="on_demand" so "closed" means "closed by the time stop()
+    returns". The other modes keep the stream deliberately — that is what
+    test_lazy_mode_keeps_the_stream_but_still_releases_it covers.
     """
     import threading
     import time
@@ -198,7 +202,7 @@ def test_quick_tap_never_strands_an_open_stream():
         def close(self):
             closed.append(self)
 
-    rec = audio.Recorder()
+    rec = audio.Recorder(Config(mic_mode="on_demand"))
     rec._make_stream = lambda device, rate: (lambda s: (s.start(), s)[1])(FakeStream(rate))
 
     threading.Thread(target=lambda: rec.start(device=None), daemon=True).start()
@@ -622,3 +626,134 @@ def test_transcribes_synthesized_russian_speech(tmp_path):
     lowered = text.lower()
     hits = [w for w in ("проверка", "распознавания", "речи") if w in lowered]
     assert len(hits) >= 2, f"expected keywords, got: {text!r}"
+
+
+# --------------------------------------------------- persistent mic / pre-roll
+
+
+class _DummyStream:
+    """Stands in for sd.InputStream: the tests drive _callback themselves."""
+
+    def __init__(self, closed: list | None = None) -> None:
+        self._closed = closed
+
+    def start(self) -> None:
+        pass
+
+    def stop(self) -> None:
+        pass
+
+    def close(self) -> None:
+        if self._closed is not None:
+            self._closed.append(self)
+
+
+def _recorder(cfg, closed: list | None = None):
+    from windictoo import audio
+
+    rec = audio.Recorder(cfg)
+    rec._make_stream = lambda device, rate: _DummyStream(closed)
+    rec.ensure_stream(None)
+    return rec
+
+
+def _feed(rec, seconds: float, value: float = 0.5) -> None:
+    """Push `seconds` of constant-amplitude audio through the callback."""
+    n = int(seconds * 16000)
+    rec._callback(np.full((n, 1), value, dtype=np.float32), n, None, None)
+
+
+def test_preroll_captures_audio_from_before_the_hotkey():
+    """The whole point of the persistent stream: what was said in the moment
+    before the key went down is already in the buffer."""
+    import time
+
+    rec = _recorder(Config(mic_mode="on_demand", preroll_ms=400, tail_ms=0))
+    _feed(rec, 0.4)  # spoken just before the user pressed the hotkey
+    rec.start()
+    time.sleep(0.4)  # clear MIN_DURATION, which is measured from the key
+    _feed(rec, 1.0)
+
+    out = rec.stop()
+    assert len(out) / 16000 == pytest.approx(1.4, abs=0.05), (
+        "pre-roll audio was dropped instead of prepended"
+    )
+
+
+def test_a_tap_is_still_too_short_even_with_a_full_preroll():
+    """Regression guard for the pre-roll change: 'too short' used to be read
+    off the buffer length, which the pre-roll now inflates to 400 ms on its
+    own. It has to come from how long the key was actually held."""
+    from windictoo import audio
+
+    rec = _recorder(Config(mic_mode="on_demand", preroll_ms=400, tail_ms=0))
+    _feed(rec, 0.4)  # a full ring, so the buffer alone looks like real speech
+    rec.start()
+
+    with pytest.raises(audio.EmptyRecording) as exc:
+        rec.stop()
+    assert exc.value.reason == "short"
+
+
+def test_preroll_ring_stays_bounded():
+    """It runs for as long as the app does; it must not grow."""
+    rec = _recorder(Config(preroll_ms=400))
+    for _ in range(50):  # five seconds through a 0.4 s window
+        _feed(rec, 0.1)
+
+    budget = 400 * 16000 // 1000
+    assert rec._ring_samples >= budget, "the window is not being kept full"
+    assert rec._ring_samples < budget + 2 * 1024, "the ring buffer is growing"
+    assert rec._ring_samples == sum(len(b) for b in rec._ring), "sample count drifted"
+
+
+def test_lazy_mode_keeps_the_stream_but_still_releases_it():
+    import time
+
+    closed: list = []
+    rec = _recorder(Config(mic_mode="lazy", mic_idle_close_sec=30, tail_ms=0), closed)
+    _feed(rec, 0.1)
+    rec.start()
+    time.sleep(0.4)
+    _feed(rec, 0.5)
+    rec.stop()
+
+    assert rec._stream is not None, "lazy mode must keep the device warm"
+    assert not closed
+    rec.release()
+    assert rec._stream is None and closed, "release() must close the device"
+    assert rec._release_timer is None, "the pending close timer must be cancelled"
+
+
+# ------------------------------------------------------------ engine catalogue
+
+
+def test_unknown_model_id_falls_back_instead_of_raising():
+    """config.json is documented as hand-editable, and a config written by a
+    newer build must not brick dictation."""
+    from windictoo import engine
+
+    assert engine.spec("no-such-model").id == engine.DEFAULT_MODEL
+
+
+def test_onnx_models_declare_that_they_ignore_the_language_setting():
+    from windictoo import engine
+
+    gigaam = engine.spec("gigaam-v3-ru")
+    assert gigaam.honors_language is False
+    assert gigaam.fixed_language == "ru"
+    assert engine.spec("parakeet-v3").honors_language is False
+    assert engine.spec("small").honors_language is True
+    assert engine.spec("small").fixed_language is None
+
+
+def test_model_catalogue_filters_by_language():
+    from windictoo import engine
+
+    armenian = {m.id for m in engine.models_for("hy")}
+    assert "small" in armenian, "Whisper covers every language the app offers"
+    assert "gigaam-v3-ru" not in armenian and "parakeet-v3" not in armenian
+
+    german = {m.id for m in engine.models_for("de")}
+    assert "parakeet-v3" in german and "gigaam-v3-ru" not in german
+    assert "gigaam-v3-ru" in {m.id for m in engine.models_for("ru")}

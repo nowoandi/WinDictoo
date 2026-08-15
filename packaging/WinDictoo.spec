@@ -3,9 +3,10 @@ from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], []
 # faster-whisper pulls native ctranslate2 + onnxruntime + tokenizers assets
-# that PyInstaller does not discover automatically.
-for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "tokenizers", "av",
-            "customtkinter", "darkdetect"):
+# that PyInstaller does not discover automatically. onnx_asr (the GigaAM /
+# Parakeet backend) ships per-model config data and is imported lazily.
+for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "onnx_asr", "tokenizers",
+            "av", "customtkinter", "darkdetect"):
     try:
         d, b, h = collect_all(pkg)
         datas += d

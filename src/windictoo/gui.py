@@ -14,7 +14,7 @@ import tkinter as tk
 
 import customtkinter as ctk
 
-from . import autostart, i18n, insert as _insert, oldversions, refine, theme, update
+from . import autostart, engine, i18n, insert as _insert, oldversions, refine, theme, update
 from .app import Dictation, State
 from .audio import input_devices
 from .config import CONFIG_DIR, LOG_PATH, Config
@@ -24,7 +24,25 @@ from .widgets import Equalizer, MicIndicator, aa_image
 
 log = logging.getLogger(__name__)
 
-MODELS = ["tiny", "base", "small", "medium", "large-v3"]
+
+def model_label(spec: engine.ModelSpec) -> str:
+    """"Whisper small · 485 MB", "GigaAM v3 · 216 MB · RU".
+
+    Model names are proper nouns and stay untranslated; only the size unit
+    and the "many languages" tag go through i18n.
+    """
+    if spec.size_mb >= 1000:
+        size = i18n.t("unit.gb", n=f"{spec.size_mb / 1000:.1f}".rstrip("0").rstrip("."))
+    else:
+        size = i18n.t("unit.mb", n=spec.size_mb)
+    parts = [spec.title, size]
+    if spec.langs is None:
+        parts.append(i18n.t("rec.langs_all"))
+    elif len(spec.langs) == 1:
+        parts.append(spec.langs[0].upper())
+    else:
+        parts.append(i18n.t("rec.langs_count", n=len(spec.langs)))
+    return " · ".join(parts)
 # Native names, matching the existing "English"/"Deutsch" convention. All
 # eight codes verified against faster_whisper.tokenizer._LANGUAGE_CODES.
 LANGS = [
@@ -902,7 +920,28 @@ class WinDictooGUI:
             fill="x", padx=14, pady=(2, 6))
         ctk.CTkLabel(c_mic, text=i18n.t("gen.mic_hint"),
                      font=_font(11), text_color=theme.MUTED, wraplength=460,
-                     justify="left").pack(anchor="w", padx=14, pady=(0, 12))
+                     justify="left").pack(anchor="w", padx=14, pady=(0, 10))
+
+        # How long the capture stream is held open. Opening a device costs
+        # 100-400 ms, which used to eat the first syllable of every dictation.
+        ctk.CTkLabel(c_mic, text=i18n.t("gen.mic_mode_label"), font=_font(12),
+                     text_color=theme.TEXT).pack(anchor="w", padx=14)
+        mic_modes = [
+            (i18n.t("gen.mic_mode_lazy"), "lazy"),
+            (i18n.t("gen.mic_mode_always"), "always"),
+            (i18n.t("gen.mic_mode_on_demand"), "on_demand"),
+        ]
+        current_mode = next(
+            (lbl for lbl, val in mic_modes if val == self.cfg.mic_mode), mic_modes[0][0]
+        )
+        self._segmented(
+            c_mic, [lbl for lbl, _ in mic_modes], current_mode,
+            lambda v: self._set_mic_mode(next(m for lbl, m in mic_modes if lbl == v)),
+        ).pack(fill="x", padx=14, pady=(2, 4))
+        self._mic_mode_hint = ctk.CTkLabel(
+            c_mic, text=i18n.t(f"gen.mic_mode_hint_{self.cfg.mic_mode}"),
+            font=_font(11), text_color=theme.MUTED, wraplength=460, justify="left")
+        self._mic_mode_hint.pack(anchor="w", padx=14, pady=(0, 12))
 
         # Theme swatch and UI language share one row: six stacked cards no
         # longer fit the window and pushed the autostart card out of view.
@@ -932,16 +971,19 @@ class WinDictooGUI:
 
     def _tab_transcription(self, tab) -> None:
         c1 = self._card(tab, i18n.t("rec.card_model"))
-        mv = ctk.StringVar(value=self.cfg.model)
+        self._model_ids = {model_label(m): m.id for m in engine.MODELS}
+        current = engine.spec(self.cfg.model)
+        mv = ctk.StringVar(value=model_label(current))
         # text_color must be explicit: CTk's default button text is white,
         # which vanishes on the white CARD background of the light theme.
-        om = ctk.CTkOptionMenu(c1, values=MODELS, variable=mv, fg_color=theme.CARD,
+        om = ctk.CTkOptionMenu(c1, values=list(self._model_ids), variable=mv, fg_color=theme.CARD,
                                text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
                                button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
                                command=lambda v: self._set_model(v))
         om.pack(fill="x", padx=14, pady=(2, 6))
-        self.model_status = ctk.CTkLabel(c1, text=i18n.t("rec.model_hint"),
-                                         font=_font(11), text_color=theme.MUTED, wraplength=460)
+        self.model_status = ctk.CTkLabel(c1, text=self._model_hint(current),
+                                         font=_font(11), text_color=theme.MUTED, wraplength=460,
+                                         justify="left")
         self.model_status.pack(anchor="w", padx=14)
         ctk.CTkButton(c1, text=i18n.t("rec.btn_load_now"), corner_radius=theme.RADIUS_BUTTON,
                       fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
@@ -955,7 +997,11 @@ class WinDictooGUI:
         ctk.CTkOptionMenu(c2, values=[l[0] for l in LANGS], variable=lv, fg_color=theme.CARD,
                           text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
                           button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
-                          command=lambda v: self._set_lang(v)).pack(fill="x", padx=14, pady=(2, 8))
+                          command=lambda v: self._set_lang(v)).pack(fill="x", padx=14, pady=(2, 2))
+        self._lang_note = ctk.CTkLabel(c2, text=self._model_hint(engine.spec(self.cfg.model)),
+                                       font=_font(11), text_color=theme.MUTED, wraplength=460,
+                                       justify="left")
+        self._lang_note.pack(anchor="w", padx=14, pady=(0, 8))
         self.thr_lbl = ctk.CTkLabel(c2, text=i18n.t("rec.threads_label", n=self.cfg.threads), font=_font(12),
                                     text_color=theme.TEXT)
         self.thr_lbl.pack(anchor="w", padx=14)
@@ -1125,6 +1171,22 @@ class WinDictooGUI:
         idx = next((i for i, name in devices if name == label), None)
         self.cfg.input_device_index = idx
         self.cfg.save()
+        # The stream is now long-lived, so a device change has to close the
+        # old one; otherwise the app keeps listening to the previous
+        # microphone until the next idle timeout.
+        self.dictation.recorder.release()
+        self.dictation.warm_up()
+
+    def _set_mic_mode(self, mode: str) -> None:
+        self.cfg.mic_mode = mode
+        self.cfg.save()
+        self._mic_mode_hint.configure(text=i18n.t(f"gen.mic_mode_hint_{mode}"))
+        if mode == "always":
+            self.dictation.warm_up()
+        else:
+            # Drop it now rather than at some later timeout, so switching away
+            # from "always" visibly clears the microphone-in-use indicator.
+            self.dictation.recorder.release()
 
     def _set_unload_idle(self, v: int) -> None:
         self.cfg.unload_model_idle_min = 15 if v else 0
@@ -1135,12 +1197,41 @@ class WinDictooGUI:
         if err and not autostart.is_enabled():
             sw.deselect()
 
-    def _set_model(self, v: str) -> None:
-        self.cfg.model = v
+    def _model_hint(self, spec: engine.ModelSpec) -> str:
+        """One line under the picker saying what this model does about
+        language — the setting below is meaningless for GigaAM and Parakeet,
+        and silently ignoring it would be baffling."""
+        if spec.honors_language:
+            return i18n.t("rec.model_hint")
+        fixed = spec.fixed_language
+        if fixed is not None:
+            name = next((l[0] for l in LANGS if l[1] == fixed), fixed.upper())
+            return i18n.t("rec.model_fixed_language", language=name)
+        return i18n.t("rec.model_detects_language")
+
+    def _set_model(self, label: str) -> None:
+        spec = engine.spec(self._model_ids[label])
+        self.cfg.model = spec.id
+        # Picking a model that cannot do the currently selected language means
+        # the user chose the model on purpose; move the language to match
+        # rather than transcribing Russian into an "English" setting.
+        if not spec.supports(self.cfg.language):
+            self.cfg.language = spec.fixed_language or "auto"
+            self._sync_language_widgets()
         self.cfg.save()
         self.dictation.transcriber = Transcriber(self.cfg)
         self._refresh_chips()
         self.model_status.configure(text=i18n.t("rec.model_will_load"))
+        self._lang_note.configure(text=self._model_hint(spec))
+
+    def _sync_language_widgets(self) -> None:
+        """Push cfg.language back into the picker and the quick-switch button
+        after something other than the picker changed it."""
+        label = next((l[0] for l in LANGS if l[1] == self.cfg.language), None)
+        if label is not None and getattr(self, "_lang_option_var", None) is not None:
+            self._lang_option_var.set(label)
+        if getattr(self, "lang_btn", None) is not None:
+            self.lang_btn.configure(text=self._lang_abbr(self.cfg.language))
 
     def _set_lang(self, label: str) -> None:
         self.cfg.language = next(l[1] for l in LANGS if l[0] == label)
@@ -1489,8 +1580,12 @@ class WinDictooGUI:
     # ---------------------------------------------------------------- helpers
 
     def preload_model_async(self) -> None:
-        """Load the Whisper model in the background right after startup so the
-        first dictation doesn't stall; the hero card shows what's happening."""
+        """Load the recognition model in the background right after startup so
+        the first dictation doesn't stall; the hero card shows what's
+        happening. Also opens the microphone if the user asked for it to stay
+        open, so the very first phrase gets the same instant start as the
+        ones after it."""
+        self.dictation.warm_up()
         if self.dictation.transcriber.is_loaded:
             return
         self.sub_lbl.configure(text=i18n.t("preload.loading"))
@@ -1556,6 +1651,13 @@ class WinDictooGUI:
 
     def quit(self) -> None:
         self._closing = True
+        # Before tearing down the window: the capture stream can outlive a
+        # dictation now, and a process that exits still holding it leaves the
+        # Windows microphone-in-use indicator lit.
+        try:
+            self.dictation.shutdown()
+        except Exception:  # noqa: BLE001
+            log.exception("could not release the microphone on exit")
         try:
             self.root.destroy()
         except tk.TclError:

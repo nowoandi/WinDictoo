@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 
 import customtkinter as ctk
 
-from . import i18n, theme
+from . import engine, i18n, theme
 from .app import Dictation, State
 from .audio import Recorder, input_devices
 from .config import Config
@@ -16,13 +17,21 @@ from .widgets import Equalizer
 STEPS = ["welcome", "microphone", "model", "hotkey", "test", "done"]
 
 
-def _models() -> list[tuple[str, str]]:
-    return [
-        (i18n.t("ob.model_tiny"), "tiny"),
-        (i18n.t("ob.model_base"), "base"),
+def _models(lang: str) -> list[tuple[str, str]]:
+    """Wizard shortlist, narrowed to what can actually handle `lang`.
+
+    The full catalogue lives in Settings; a first-run wizard offering a
+    Russian-only model to a French speaker would just be a trap.
+    """
+    shortlist = [
+        (i18n.t("ob.model_gigaam"), "gigaam-v3-ru"),
+        (i18n.t("ob.model_parakeet"), "parakeet-v3"),
         (i18n.t("ob.model_small"), "small"),
+        (i18n.t("ob.model_base"), "base"),
         (i18n.t("ob.model_medium"), "medium"),
     ]
+    usable = {m.id for m in engine.models_for(lang)}
+    return [(label, mid) for label, mid in shortlist if mid in usable]
 
 
 def _font(size: int, weight: str = "normal") -> ctk.CTkFont:
@@ -166,8 +175,19 @@ class Onboarding:
     def _step_model(self) -> None:
         self._title("◈", i18n.t("ob.model_title"))
         self._text(i18n.t("ob.model_text"))
+        options = _models(self.cfg.language)
+        # On a fresh install, start on the model recommended for this language
+        # rather than on the dataclass default (Whisper small) — and commit it,
+        # so clicking straight through the wizard installs what the radio
+        # button actually shows as selected. Once only: stepping back to this
+        # page must not undo a choice the user just made, and someone who
+        # reopens the finished wizard from Settings keeps their model.
+        if options and not self.cfg.onboarding_done and not getattr(self, "_preselected", False):
+            self._preselected = True
+            self.cfg.model = options[0][1]
+            self.cfg.save()
         self._model_var = ctk.StringVar(value=self.cfg.model)
-        for label, name in _models():
+        for label, name in options:
             ctk.CTkRadioButton(self.card, text=label, variable=self._model_var, value=name,
                                font=_font(13), fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
                                command=self._pick_model).pack(anchor="w", padx=32, pady=4)
@@ -217,7 +237,9 @@ class Onboarding:
             self._stop_probe()
             self._mic_btn.configure(text=i18n.t("ob.mic_btn_test"))
             return
-        self._probe = Recorder()
+        # A throwaway recorder in on-demand mode: stopping the test has to
+        # release the device there and then, not leave it open on a timer.
+        self._probe = Recorder(replace(self.cfg, mic_mode="on_demand", preroll_ms=0))
         try:
             self._probe.start()
         except Exception as exc:  # noqa: BLE001

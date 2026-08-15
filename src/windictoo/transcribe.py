@@ -1,4 +1,11 @@
-"""Local speech-to-text via faster-whisper (CTranslate2, CPU/int8)."""
+"""Local speech-to-text.
+
+The actual recognition lives in windictoo.engine (faster-whisper for the
+Whisper sizes, onnx-asr for GigaAM and Parakeet). What stays here is
+everything that is the same whichever backend ran: lazy loading, the idle
+unload timer, and scrubbing the non-speech annotations every ASR model emits
+sooner or later.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +15,8 @@ import threading
 
 import numpy as np
 
-from .config import MODELS_DIR, Config
+from . import engine
+from .config import Config
 
 log = logging.getLogger(__name__)
 
@@ -38,51 +46,29 @@ class Transcriber:
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
-        self._model = None
+        self.spec = engine.spec(cfg.model)
+        self._engine = engine.make(cfg, self.spec)
+        self._loaded = False
         self._lock = threading.Lock()
         self._unload_timer: threading.Timer | None = None
 
     @property
     def is_loaded(self) -> bool:
-        return self._model is not None
+        return self._loaded
 
     def load(self):
         self._cancel_unload_timer()
         with self._lock:
-            if self._model is None:
-                from faster_whisper import WhisperModel
-
-                MODELS_DIR.mkdir(parents=True, exist_ok=True)
-                log.info(
-                    "loading model %s (%s, %d threads)",
-                    self.cfg.model,
-                    self.cfg.compute_type,
-                    self.cfg.threads,
-                )
-                self._model = WhisperModel(
-                    self.cfg.model,
-                    device="cpu",
-                    compute_type=self.cfg.compute_type,
-                    cpu_threads=self.cfg.threads,
-                    download_root=str(MODELS_DIR),
-                )
-                log.info("model loaded")
-            return self._model
+            if not self._loaded:
+                self._engine.load()
+                self._loaded = True
+            return self._engine
 
     def transcribe(self, audio: np.ndarray) -> tuple[str, str | None]:
         """Return (text, detected_language)."""
-        model = self.load()
-        language = None if self.cfg.language == "auto" else self.cfg.language
-        segments, info = model.transcribe(
-            audio,
-            language=language,
-            beam_size=5,
-            vad_filter=True,
-            condition_on_previous_text=False,
-        )
-        raw = "".join(s.text for s in segments)
+        self.load()
+        raw, detected = self._engine.transcribe(audio)
         text = normalize_whitespace(strip_artifacts(raw))
-        detected = getattr(info, "language", None)
         log.info("transcribed %d chars (lang=%s)", len(text), detected)
         self._schedule_unload()
         return text, detected
@@ -90,7 +76,7 @@ class Transcriber:
     # ------------------------------------------------------------- idle unload
 
     def _schedule_unload(self) -> None:
-        """Free the model (~0.5-3 GB depending on size) after N minutes of
+        """Free the model (~0.2-3 GB depending on size) after N minutes of
         no dictation, for users on low-RAM machines. Opt-in via
         Config.unload_model_idle_min (0 = never); each new transcription
         resets the timer via load()'s _cancel_unload_timer()."""
@@ -109,6 +95,9 @@ class Transcriber:
 
     def _unload(self) -> None:
         with self._lock:
-            if self._model is not None:
-                self._model = None
+            if self._loaded:
+                # Dropping the engine drops the only reference to the loaded
+                # weights; a fresh one is built so the next load() works.
+                self._engine = engine.make(self.cfg, self.spec)
+                self._loaded = False
                 log.info("model unloaded after %d min idle", self.cfg.unload_model_idle_min)

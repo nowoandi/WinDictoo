@@ -31,7 +31,7 @@ class Dictation:
 
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
-        self.recorder = Recorder()
+        self.recorder = Recorder(cfg)
         self.transcriber = Transcriber(cfg)
         self.state = State.IDLE
         self.message = ""
@@ -44,6 +44,22 @@ class Dictation:
         self._target_hwnd = 0
         self._lock = threading.Lock()
         self._cancelled = threading.Event()
+
+    def warm_up(self) -> None:
+        """Open the microphone ahead of the first hotkey, if the user asked
+        for that (Config.mic_mode "always"). Failure is not fatal — the next
+        start() retries and reports properly — so this only logs."""
+        if self.cfg.mic_mode != "always":
+            return
+        try:
+            self.recorder.ensure_stream()
+        except Exception as exc:  # noqa: BLE001
+            log.info("could not pre-open the microphone: %s", exc)
+
+    def shutdown(self) -> None:
+        """Release the microphone on the way out, so the in-use indicator
+        clears even when the stream was being held open."""
+        self.recorder.release()
 
     def _set_state(self, state: State, message: str = "") -> None:
         self.state = state
@@ -68,7 +84,7 @@ class Dictation:
             self._target_hwnd = hwnd
             self._set_state(State.RECORDING)
         try:
-            self.recorder.start(device=self.cfg.input_device_index)
+            self.recorder.start()
         except Exception as exc:  # noqa: BLE001
             log.exception("could not start recording")
             self._set_state(State.ERROR, i18n.t("app.mic_unavailable", error=exc))

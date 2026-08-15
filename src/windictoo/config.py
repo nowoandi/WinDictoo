@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -37,6 +38,15 @@ def _detect_system_language() -> str:
 CONFIG_DIR = Path.home() / "AppData" / "Local" / "WinDictoo"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 MODELS_DIR = CONFIG_DIR / "models"
+# The onnx-asr backend has no download_root parameter of its own — it goes
+# through huggingface_hub, which reads these two variables *at import time*.
+# This module is a leaf that every entry point imports before any model
+# backend, so setting them here lands early enough. setdefault, not
+# assignment: a user who has pointed HF_HUB_CACHE somewhere deliberately
+# keeps their choice.
+ONNX_MODELS_DIR = MODELS_DIR / "onnx"
+os.environ.setdefault("HF_HUB_CACHE", str(ONNX_MODELS_DIR))
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 LOG_PATH = CONFIG_DIR / "windictoo.log"
 # A second launch writes this file to ask the running instance to show its
 # window (single-instance handoff), then exits.
@@ -59,7 +69,11 @@ class Config:
     # fall back rather than raising (Recorder.start() already does this).
     input_device_index: int | None = None
 
+    # An id from windictoo.engine.MODELS — the Whisper sizes ("small",
+    # "large-v3", ...) plus the onnx entries ("gigaam-v3-ru", "parakeet-v3").
+    # An unrecognised value degrades to Whisper small; see engine.spec().
     model: str = "small"
+    # Whisper/CTranslate2 only; the onnx models carry their own quantisation.
     compute_type: str = "int8"
     # Defaults to the Windows UI language on a brand-new install (falls back
     # to English if that's not one of our supported codes); once saved, the
@@ -76,6 +90,25 @@ class Config:
     # 0 = keep the model in RAM forever (fastest repeat dictation); >0 =
     # unload it after that many idle minutes to free RAM on weaker PCs.
     unload_model_idle_min: int = 0
+
+    # How long the microphone stream stays open (see audio.Recorder):
+    #   "on_demand" — opened on the hotkey and closed straight after. No idle
+    #                 microphone at all, but opening costs 100-400 ms, which
+    #                 is exactly the window that swallows the first syllable.
+    #   "lazy"      — kept open for `mic_idle_close_sec` after a dictation, so
+    #                 back-to-back phrases are instant. The default.
+    #   "always"    — opened at startup and never closed. Fastest, but Windows
+    #                 shows the microphone-in-use indicator the whole time and
+    #                 Bluetooth headsets drop to their low-quality headset
+    #                 profile, so this one is opt-in.
+    mic_mode: str = "lazy"
+    mic_idle_close_sec: int = 30
+    # Audio kept from *before* the hotkey went down, so a word begun a moment
+    # early still makes it in. Costs 32 KB of RAM at the default.
+    preroll_ms: int = 400
+    # ...and audio kept after it comes up: people release the key while still
+    # finishing the last word.
+    tail_ms: int = 200
 
     refine_enabled: bool = False
     ollama_endpoint: str = "http://127.0.0.1:11434"
@@ -100,6 +133,14 @@ class Config:
     # dwindling population, so it runs once and never again rather than on
     # every single launch forever.
     legacy_autostart_cleanup_done: bool = False
+
+    def __post_init__(self) -> None:
+        # config.json is documented as hand-editable, so a typo here must not
+        # reach audio.Recorder (which would silently never close the stream)
+        # or the interface (which builds a translation key from this value).
+        if self.mic_mode not in ("on_demand", "lazy", "always"):
+            log.warning("unknown mic_mode %r, using 'lazy'", self.mic_mode)
+            self.mic_mode = "lazy"
 
     @classmethod
     def load(cls) -> "Config":

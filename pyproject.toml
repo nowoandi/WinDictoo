@@ -1,7 +1,7 @@
-﻿[project]
+[project]
 name = "windictoo"
-version = "1.7.4"
-description = "Ð›Ð¾ÐºÐ°Ð»ÑŒÐ½Ñ‹Ð¹ Ð³Ð¾Ð»Ð¾ÑÐ¾Ð²Ð¾Ð¹ Ð²Ð²Ð¾Ð´ Ð´Ð»Ñ Windows: Ð³Ð¾Ñ€ÑÑ‡Ð°Ñ ÐºÐ»Ð°Ð²Ð¸ÑˆÐ°, Whisper, Ð²ÑÑ‚Ð°Ð²ÐºÐ° Ð² Ð°ÐºÑ‚Ð¸Ð²Ð½Ð¾Ðµ Ð¿Ð¾Ð»Ðµ"
+version = "1.8.0"
+description = "Локальный голосовой ввод для Windows: горячая клавиша, Whisper, вставка в активное поле"
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -14,6 +14,7 @@ dependencies = [
     "hf-xet>=1.1.0",
     "httpx>=0.28.1",
     "numpy>=2.5.1",
+    "onnx-asr[cpu,hub]>=0.7.0",
     "pillow>=12.3.0",
     "pynput>=1.8.2",
     "pystray>=0.19.5",

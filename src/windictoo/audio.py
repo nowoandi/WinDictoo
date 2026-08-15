@@ -1,12 +1,37 @@
-"""Microphone capture into a 16 kHz mono float32 buffer for Whisper."""
+"""Microphone capture into a 16 kHz mono float32 buffer for Whisper.
+
+The stream is *not* tied to the hotkey. Opening a capture device costs
+100-400 ms — a WASAPI device that refuses 16 kHz costs a failed open plus a
+query on top — and that delay used to land squarely on the first syllable of
+every dictation. So the stream is opened once and kept running: while no
+dictation is in progress its blocks go into a small ring buffer (Config
+.preroll_ms, 400 ms by default, about 32 KB), and pressing the hotkey simply
+starts appending to a recording buffer that has been *pre-seeded with the
+ring*. A word begun a moment before the key went down is therefore already
+captured. Config.tail_ms does the same at the other end, for the very common
+habit of releasing the key while still finishing the last word.
+
+How long the stream lingers is Config.mic_mode — see the comment on that
+field. The default keeps it open for half a minute after a dictation, which
+makes back-to-back phrases instant without holding the microphone open (and
+the Windows in-use indicator lit) all day.
+
+A consequence worth knowing: "recording too short" can no longer be decided
+from the length of the buffer, because the pre-roll always makes it at least
+preroll_ms long. It is decided from how long the key was actually held.
+"""
 
 from __future__ import annotations
 
+import collections
 import logging
 import threading
+import time
 
 import numpy as np
 import sounddevice as sd
+
+from .config import Config
 
 log = logging.getLogger(__name__)
 
@@ -63,90 +88,71 @@ def _preferred_input_device() -> int | None:
 
 
 class Recorder:
-    def __init__(self) -> None:
+    def __init__(self, cfg: Config | None = None) -> None:
+        # Defaults are fine for a throwaway probe (the onboarding microphone
+        # test builds one); the real dictation recorder gets the live config.
+        self.cfg = cfg if cfg is not None else Config()
         self._stream: sd.InputStream | None = None
-        # _lock guards _chunks/_peak: the PortAudio callback runs on its own
-        # thread while start/stop/cancel are called from the hotkey thread.
+        # _lock guards _chunks/_ring/is_recording: the PortAudio callback runs
+        # on its own thread while start/stop/cancel are called from the hotkey
+        # thread.
         self._lock = threading.Lock()
-        # _stream_lock serialises the whole of start/stop/cancel against each
-        # other. Opening a stream is slow (a device that rejects 16 kHz costs
-        # a probe plus a second open — hundreds of ms), and a quick hotkey tap
+        # _stream_lock serialises opening and closing the stream against each
+        # other and against start(). Opening is slow, and a quick hotkey tap
         # used to land stop() in the middle of that window: _stream was still
         # None, so stop closed nothing, then start finished and assigned a
         # live stream nobody would ever close. Python then collected that
         # orphan while PortAudio still held its callback pointer, and the next
         # audio block jumped into freed memory — an 0xc0000005 access
         # violation reported against "unknown"/_cffi_backend rather than any
-        # traceback. Holding this across the entire operation makes a tap
+        # traceback. Holding this across the whole operation makes a tap
         # simply wait for the open to finish and then close it properly.
         self._stream_lock = threading.RLock()
         self._chunks: list[np.ndarray] = []
-        self._peak = 0.0
+        # Rolling pre-roll window, filled only while *not* recording.
+        self._ring: collections.deque[np.ndarray] = collections.deque()
+        self._ring_samples = 0
+        self._preroll_samples = 0
+        self._hold_started = 0.0
         self.level = 0.0
         self.is_recording = False
         self._stream_rate = SAMPLE_RATE
+        self._open_device: int | None = None
+        self._release_timer: threading.Timer | None = None
         # device -> sample rate known to work, so the 16 kHz attempt that this
         # device already rejected is not repeated on every single recording.
         self._rate_cache: dict[object, int] = {}
 
+    # ------------------------------------------------------------- capture path
+
+    def _preroll_budget(self) -> int:
+        """Pre-roll length in samples *at the stream's own rate*."""
+        return max(0, int(self.cfg.preroll_ms) * self._stream_rate // 1000)
+
     def _callback(self, indata, frames, time_info, status) -> None:
         if status:
             log.debug("audio status: %s", status)
+        block = indata[:, 0].copy()
         with self._lock:
-            if not self.is_recording:
+            if self.is_recording:
+                self._chunks.append(block)
+                rms = float(np.sqrt(np.mean(block**2))) if block.size else 0.0
+                self.level = min(1.0, rms * 18)
                 return
-            block = indata[:, 0].copy()
-            self._chunks.append(block)
-            rms = float(np.sqrt(np.mean(block**2))) if block.size else 0.0
-            self.level = min(1.0, rms * 18)
-            self._peak = max(self._peak, self.level)
-
-    def start(self, device: int | None = None) -> None:
-        """`device` overrides the user's saved microphone choice (see
-        Config.input_device_index); None means "system default"."""
-        with self._stream_lock:
-            if self.is_recording or self._stream is not None:
+            # Idle: keep the tail end of what the microphone is hearing, so a
+            # dictation started a moment late still has its first word.
+            budget = self._preroll_budget()
+            if budget <= 0:
+                if self._ring:
+                    self._ring.clear()
+                    self._ring_samples = 0
                 return
-            with self._lock:
-                self._chunks = []
-                self._peak = 0.0
-                self.level = 0.0
-                self.is_recording = True
+            self._ring.append(block)
+            self._ring_samples += len(block)
+            while self._ring and self._ring_samples - len(self._ring[0]) >= budget:
+                self._ring_samples -= len(self._ring.popleft())
 
-            # Fallback chain: the user's chosen device, then WASAPI's own
-            # default, then whatever PortAudio itself considers default — each
-            # a little less specific, so a disconnected/renumbered device never
-            # hard-fails the whole session.
-            candidates: list[int | None] = []
-            if device is not None:
-                candidates.append(device)
-            preferred = _preferred_input_device()
-            if preferred is not None and preferred not in candidates:
-                candidates.append(preferred)
-            candidates.append(None)
-
-            last_exc: Exception | None = None
-            opened: tuple[sd.InputStream, int] | None = None
-            used_dev: int | None = None
-            for i, dev in enumerate(candidates):
-                try:
-                    opened = self._open_stream(dev)
-                    used_dev = dev
-                    last_exc = None
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    last_exc = exc
-                    if i < len(candidates) - 1:
-                        log.warning("input device %s failed (%s), trying next", dev, exc)
-            if last_exc is not None or opened is None:
-                # Clear the flag before propagating: leaving it set made every
-                # later start() return early at the guard above, so a single
-                # failed open disabled dictation until the app was restarted.
-                with self._lock:
-                    self.is_recording = False
-                raise last_exc if last_exc is not None else RuntimeError("no input device")
-            self._stream, self._stream_rate = opened
-            log.info("recording started (device=%s, rate=%d)", used_dev, self._stream_rate)
+    # -------------------------------------------------------------- stream life
 
     def _make_stream(self, device: int | None, rate: int) -> sd.InputStream:
         stream = sd.InputStream(
@@ -161,14 +167,12 @@ class Recorder:
         reject any rate but their own mix format ("Invalid sample rate"),
         which was previously caught only to fall straight back to the
         legacy MME host API — silently defeating the whole point of
-        preferring WASAPI (see _preferred_input_device) on every single
-        recording. Retrying at the device's own native rate keeps the
-        stream on WASAPI; _teardown() resamples the result back to 16 kHz.
+        preferring WASAPI (see _preferred_input_device). Retrying at the
+        device's own native rate keeps the stream on WASAPI; the recording
+        path resamples the result back to 16 kHz.
 
-        The working rate is remembered per device. Re-probing 16 kHz on a
-        device already known to refuse it cost a failed open plus a query on
-        every recording — hundreds of milliseconds of latency, and exactly
-        the window in which a quick hotkey tap used to strand a stream."""
+        The working rate is remembered per device, so a device already known
+        to refuse 16 kHz is not re-probed on every reopen."""
         cached = self._rate_cache.get(device)
         if cached is not None:
             try:
@@ -194,33 +198,143 @@ class Recorder:
             if native_rate is None or native_rate == SAMPLE_RATE:
                 raise
             log.info("device %s rejected %d Hz (%s); retrying at its native %d Hz",
-                      device, SAMPLE_RATE, exc, native_rate)
+                     device, SAMPLE_RATE, exc, native_rate)
             stream = self._make_stream(device, native_rate)
             self._rate_cache[device] = native_rate
             return stream, native_rate
 
-    def _teardown(self) -> np.ndarray:
-        # Held for the whole teardown so it cannot interleave with an
-        # in-progress start(); see the _stream_lock comment in __init__.
+    def ensure_stream(self, device: int | None = None) -> None:
+        """Open the capture stream if it isn't already running.
+
+        Called on the hotkey, and at startup when Config.mic_mode is "always".
+        Raises if no device could be opened at all.
+        """
+        if device is None:
+            device = self.cfg.input_device_index
         with self._stream_lock:
-            with self._lock:
-                self.is_recording = False
-            stream, self._stream = self._stream, None
-            if stream is not None:
-                # Always close explicitly. Dropping the last reference and
-                # letting the garbage collector do it is what turns a stray
-                # stream into a native crash: PortAudio keeps calling the
-                # callback the collector has already freed.
+            self._cancel_release_timer()
+            if self._stream is not None:
+                if device == self._open_device:
+                    return
+                # The user picked a different microphone; swap to it.
+                log.info("input device changed (%s -> %s), reopening",
+                         self._open_device, device)
+                self._close_stream()
+
+            # Fallback chain: the user's chosen device, then WASAPI's own
+            # default, then whatever PortAudio itself considers default — each
+            # a little less specific, so a disconnected/renumbered device never
+            # hard-fails the whole session.
+            candidates: list[int | None] = []
+            if device is not None:
+                candidates.append(device)
+            preferred = _preferred_input_device()
+            if preferred is not None and preferred not in candidates:
+                candidates.append(preferred)
+            candidates.append(None)
+
+            last_exc: Exception | None = None
+            for i, dev in enumerate(candidates):
                 try:
-                    stream.stop()
-                finally:
-                    stream.close()
+                    stream, rate = self._open_stream(dev)
+                except Exception as exc:  # noqa: BLE001
+                    last_exc = exc
+                    if i < len(candidates) - 1:
+                        log.warning("input device %s failed (%s), trying next", dev, exc)
+                    continue
+                self._stream, self._stream_rate = stream, rate
+                self._open_device = device
+                with self._lock:
+                    self._ring.clear()
+                    self._ring_samples = 0
+                log.info("microphone open (device=%s, rate=%d)", dev, rate)
+                return
+            raise last_exc if last_exc is not None else RuntimeError("no input device")
+
+    def _close_stream(self) -> None:
+        with self._stream_lock:
+            self._cancel_release_timer()
+            stream, self._stream = self._stream, None
+            self._open_device = None
             with self._lock:
-                chunks = self._chunks
-                self._chunks = []
+                self._ring.clear()
+                self._ring_samples = 0
+            if stream is None:
+                return
+            # Always close explicitly. Dropping the last reference and letting
+            # the garbage collector do it is what turns a stray stream into a
+            # native crash: PortAudio keeps calling the callback the collector
+            # has already freed.
+            try:
+                stream.stop()
+            finally:
+                stream.close()
+            log.info("microphone closed")
+
+    def release(self) -> None:
+        """Close the stream now — device change, or application shutdown."""
+        self._close_stream()
+
+    def _cancel_release_timer(self) -> None:
+        if self._release_timer is not None:
+            self._release_timer.cancel()
+            self._release_timer = None
+
+    def _schedule_release(self) -> None:
+        """Apply Config.mic_mode once a dictation has finished."""
+        mode = self.cfg.mic_mode
+        if mode == "always":
+            return
+        if mode == "on_demand":
+            self._close_stream()
+            return
+        with self._stream_lock:
+            self._cancel_release_timer()
+            delay = max(1, int(self.cfg.mic_idle_close_sec))
+            self._release_timer = threading.Timer(delay, self._close_stream)
+            self._release_timer.daemon = True
+            self._release_timer.start()
+
+    # ------------------------------------------------------------ recording API
+
+    def start(self, device: int | None = None) -> None:
+        """`device` overrides the user's saved microphone choice (see
+        Config.input_device_index); None means "use the saved one"."""
+        with self._stream_lock:
+            if self.is_recording:
+                return
+            self.ensure_stream(device)  # raises if nothing could be opened
+            with self._lock:
+                # Seed the recording with the pre-roll window, so the buffer
+                # already contains the moment before the key went down.
+                seed = list(self._ring)
+                self._ring.clear()
+                self._ring_samples = 0
+                self._chunks = seed
+                self._preroll_samples = sum(len(b) for b in seed)
                 self.level = 0.0
-            audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
-            return _resample(audio, self._stream_rate, SAMPLE_RATE)
+                self.is_recording = True
+            self._hold_started = time.monotonic()
+            log.info("recording started (pre-roll %d ms)",
+                     self._preroll_samples * 1000 // max(1, self._stream_rate))
+
+    def _wait_tail(self) -> None:
+        """Keep capturing for Config.tail_ms after the key came up. Polls so a
+        cancel arriving mid-wait (which clears is_recording) ends it at once."""
+        deadline = time.monotonic() + max(0, int(self.cfg.tail_ms)) / 1000
+        while self.is_recording and time.monotonic() < deadline:
+            time.sleep(0.025)
+
+    def _collect(self) -> tuple[np.ndarray, int]:
+        """Stop accumulating; return (audio at stream rate, pre-roll samples)."""
+        with self._lock:
+            self.is_recording = False
+            chunks, self._chunks = self._chunks, []
+            preroll = self._preroll_samples
+            self._preroll_samples = 0
+            self.level = 0.0
+        audio = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+        return audio, preroll
 
     def stop(self) -> np.ndarray:
         """Return captured audio, or raise EmptyRecording.
@@ -228,31 +342,54 @@ class Recorder:
         A very quick tap blocks here until an in-flight start() has finished
         opening its stream, so the stream is closed rather than stranded.
         """
-        audio = self._teardown()
-        duration = len(audio) / SAMPLE_RATE
-        if duration < MIN_DURATION:
-            log.info(
-                "recording rejected as too short (%.2fs, peak %.3f)", duration, self._peak
-            )
+        was_recording = self.is_recording
+        held = time.monotonic() - self._hold_started if was_recording else 0.0
+        # A genuine hold earns the tail window; a mis-tap is going to be
+        # rejected anyway, so don't make the user wait to be told so. The wait
+        # deliberately happens before the lock below — it is a sleep.
+        if was_recording and held >= MIN_DURATION:
+            self._wait_tail()
+
+        with self._stream_lock:
+            # Taking the lock puts us strictly after any in-flight start(): a
+            # tap that arrives mid-open then tears down the stream that open
+            # produced, instead of leaving it stranded (see __init__).
+            if not was_recording and self.is_recording:
+                # start() has only just finished — this was a tap, not speech.
+                held = time.monotonic() - self._hold_started
+            raw, preroll = self._collect()
+            self._schedule_release()
+        audio = _resample(raw, self._stream_rate, SAMPLE_RATE)
+
+        if held < MIN_DURATION:
+            # Measured from the key, not from the buffer: the pre-roll makes
+            # every buffer at least preroll_ms long, so buffer length can no
+            # longer tell a tap from a real dictation.
+            log.info("recording rejected as too short (held %.2fs)", held)
             raise EmptyRecording("short")
-        if self._peak < MIN_PEAK:
+        peak = float(np.abs(audio).max()) if audio.size else 0.0
+        if peak < MIN_PEAK:
             # Long enough to be a real attempt, but not a whisper of signal —
-            # this is "the microphone isn't picking anything up", not "you
-            # let go too fast". Conflating the two produced a confusing
-            # "recording too short" message after a 78-second silent hold.
-            log.info(
-                "recording rejected as silent (%.2fs, peak %.3f)", duration, self._peak
-            )
+            # this is "the microphone isn't picking anything up", not "you let
+            # go too fast". Conflating the two produced a confusing "recording
+            # too short" message after a 78-second silent hold.
+            log.info("recording rejected as silent (%.2fs, peak %.3f)",
+                     len(audio) / SAMPLE_RATE, peak)
             raise EmptyRecording("silent")
-        log.info("recording stopped (%.2fs)", duration)
+        log.info("recording stopped (%.2fs held, %.2fs audio incl. %d ms pre-roll)",
+                 held, len(audio) / SAMPLE_RATE, preroll * 1000 // max(1, self._stream_rate))
         return audio
 
     def cancel(self) -> None:
+        # Same lock discipline as stop(): a cancel landing inside an in-flight
+        # start() must run after it, or it would cancel nothing and leave a
+        # live stream behind.
         with self._stream_lock:
             if not self.is_recording and self._stream is None:
                 return
-            self._teardown()
-            log.info("recording cancelled")
+            self._collect()
+            self._schedule_release()
+        log.info("recording cancelled")
 
 
 def input_devices() -> list[tuple[int, str]]:

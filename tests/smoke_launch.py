@@ -158,9 +158,17 @@ def main() -> int:
     audio = load_wav(wav)
     dictation.start()
     assert dictation.state is State.RECORDING
-    # Replace the live mic buffer with our synthesized speech.
+    # Replace the live mic buffer with our synthesized speech. The recorder
+    # decides "too short" from how long the key was held, not from the buffer
+    # (the pre-roll window makes every buffer look long enough), so backdate
+    # the hold as well or stop() rejects this as a mis-tap.
     dictation.recorder._chunks = [audio]
-    dictation.recorder._peak = 1.0
+    dictation.recorder._preroll_samples = 0
+    dictation.recorder._hold_started = time.monotonic() - 2.0
+    # load_wav() already gives 16 kHz; if the device happened to open at its
+    # own native rate, the teardown would "resample" our audio from that rate
+    # and mangle it.
+    dictation.recorder._stream_rate = 16000
     dictation.stop_and_process()
 
     if not done.wait(timeout=120):

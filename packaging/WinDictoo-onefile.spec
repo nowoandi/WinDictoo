@@ -3,8 +3,8 @@
 from PyInstaller.utils.hooks import collect_all
 
 datas, binaries, hiddenimports = [], [], []
-for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "tokenizers", "av",
-            "customtkinter", "darkdetect"):
+for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "onnx_asr", "tokenizers",
+            "av", "customtkinter", "darkdetect"):
     try:
         d, b, h = collect_all(pkg)
         datas += d

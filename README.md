@@ -48,7 +48,8 @@ The same page also has no-install variants, if you prefer those:
 - **`WinDictoo-<version>-win64.zip`** — the same app as a folder: unzip
   and run the `WinDictoo.exe` inside.
 
-The only later download is the speech model (~500 MB) on first run.
+The only later download is the recognition model on first run — from
+216 MB (GigaAM v3) to 3 GB (Whisper large-v3), depending on your pick.
 
 ## What it does
 
@@ -57,9 +58,13 @@ The only later download is the speech model (~500 MB) on first run.
   Windows system menu and isn't used):
   - *hold*: records while the keys are held; transcribes on release;
   - *toggle*: press once to start, press again to stop.
-- **Local recognition** via
-  [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (CTranslate2),
-  CPU-only with int8 quantization. The language list includes auto-detect,
+- **Local recognition**, CPU-only with int8 quantization, on either of two
+  engines: [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+  (CTranslate2) for the Whisper sizes, or
+  [onnx-asr](https://github.com/istupakov/onnx-asr) for **GigaAM v3**
+  (Russian, and much better at it than Whisper `small`) and **Parakeet v3**
+  (25 European languages). See "Recognition models" below. The language list
+  includes auto-detect,
   Russian, English, German, French, Spanish, Chinese, Turkish, and Armenian;
   the list is easy to extend to any language Whisper understands. On first
   run the language defaults to the Windows system language — change it
@@ -86,8 +91,8 @@ The only later download is the speech model (~500 MB) on first run.
 
 ## Requirements
 
-- Windows 10/11; ~500 MB for the `small` model (downloaded automatically
-  on first run).
+- Windows 10/11; 216 MB to 3 GB for the recognition model, depending on
+  which one you pick (downloaded automatically on first run).
 - Optional: [Ollama](https://ollama.com) with an instruct model (e.g.
   `ollama pull qwen2.5:3b`).
 - Python 3.13+ and [uv](https://docs.astral.sh/uv/) — **only for building
@@ -118,7 +123,7 @@ uv run pyinstaller packaging/WinDictoo.spec --noconfirm --distpath dist --workpa
 powershell -ExecutionPolicy Bypass -File packaging/install_shortcuts.ps1  # shortcuts
 ```
 
-The first transcription downloads the Whisper model (~500 MB) to
+The first transcription downloads the selected recognition model to
 `%LOCALAPPDATA%\WinDictoo\models`.
 
 ### Running from source (for development)
@@ -155,7 +160,7 @@ The **⋮** button in the window opens the tabs:
 - **General** — hotkey (capture by pressing it), hold/toggle mode, key
   suppression, insertion method (type into field / clipboard+Ctrl+V),
   autostart, color theme, **interface language**.
-- **Recognition** — Whisper model, speech language, CPU thread count, a
+- **Recognition** — recognition model, speech language, CPU thread count, a
   "Load model now" button.
 - **Refinement** — enabling Ollama, its address, model, a "Check" button.
 - **Privacy** — what and how data is handled, the log, the setup wizard,
@@ -180,17 +185,62 @@ to the app" in Settings → General.
 Changes apply immediately. Everything is stored in
 `%LOCALAPPDATA%\WinDictoo\config.json` (which can be hand-edited too).
 
-## Whisper models
+## Recognition models
 
-| Model | Size | Speed / quality |
-|---|---|---|
-| `tiny` | ~75 MB | fastest, rough quality |
-| `base` | ~145 MB | fast |
-| `small` | ~485 MB | **recommended** (balanced) |
-| `medium` | ~1.5 GB | slower, more accurate |
-| `large-v3` | ~3 GB | most accurate, heavy on CPU |
+Two engines are available, and the picker in **Settings → Recognition**
+mixes them into one list.
 
-For an i5 with no discrete GPU, `small` at `int8` is the sweet spot.
+| Model | Size | Languages | Speed |
+|---|---|---|---|
+| **GigaAM v3** | ~216 MB | Russian only | ~20× real time |
+| **Parakeet v3** | ~639 MB | 25 European (incl. ru, en, de, fr, es) | ~15× real time |
+| Whisper `tiny` | ~75 MB | 99 | fastest of the Whispers, rough |
+| Whisper `base` | ~145 MB | 99 | fast |
+| Whisper `small` | ~485 MB | 99 | ~3× real time, balanced |
+| Whisper `medium` | ~1.5 GB | 99 | slower, more accurate |
+| Whisper `large-v3` | ~3 GB | 99 | most accurate, heavy on CPU |
+
+Speeds measured on a warm cache, CPU only, 4 threads, against the same
+3.2-second Russian phrase; all three of GigaAM, Parakeet and Whisper `small`
+transcribed it correctly.
+
+**GigaAM v3** and **Parakeet v3** run on onnxruntime (via
+[onnx-asr](https://github.com/istupakov/onnx-asr)) rather than Whisper, and
+both produce punctuation and capitalisation of their own. Neither takes a
+language setting: GigaAM is Russian-only, Parakeet detects the language
+itself, so the language picker greys out with a note when one of them is
+selected. If you dictate in Russian, GigaAM is the best choice here — it is
+less than half the size of Whisper `small` and several times faster.
+
+Whisper remains the only option for the languages the other two don't cover
+(Chinese, Turkish, Armenian, and 70-odd more), and the only one where you can
+force a specific language.
+
+## The microphone
+
+Opening a capture device costs 100–400 ms, which is exactly long enough to
+swallow the first syllable of a dictation. So the stream is opened once and
+kept running: while you are not dictating, the last **400 ms** of audio sits
+in a small ring buffer, and pressing the hotkey starts the recording from
+*there* — a word begun a moment early is already captured. The same happens
+at the other end: recording continues for **200 ms** after the key comes up,
+for the common habit of releasing it while still finishing the word.
+
+**Settings → General → "When the microphone is open"** decides how long the
+stream lingers:
+
+- **Half a minute after** (default) — released 30 s after a dictation, so
+  back-to-back phrases start instantly.
+- **Always** — fastest possible start, but Windows shows the
+  "microphone in use" indicator permanently and Bluetooth headsets switch to
+  their headset profile, which makes music through them sound worse.
+- **Only while dictating** — the microphone is left completely alone between
+  dictations, at the cost of that 100–400 ms and a possibly clipped first
+  word.
+
+None of this changes the privacy model: idle audio never leaves the ring
+buffer in RAM, is overwritten continuously, and is discarded when the stream
+closes.
 
 ## Development
 
@@ -214,3 +264,17 @@ uv run python tests/smoke_type.py    # typing into a field (needs an interactive
 
 MIT — see [LICENSE](LICENSE). Use, modify, and distribute freely, including
 commercially.
+
+The recognition models are downloaded at run time and carry their own terms:
+
+- OpenAI **Whisper** — MIT.
+- Sber **GigaAM v3** — MIT
+  ([ONNX build](https://huggingface.co/istupakov/gigaam-v3-onnx)).
+- NVIDIA **Parakeet TDT 0.6B v3** — CC-BY-4.0
+  ([model card](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3)),
+  commercial use permitted with attribution.
+
+Some ideas here — the persistent microphone with a pre-roll window, and
+offering non-Whisper engines at all — were taken from
+[Handy](https://github.com/cjpais/handy) (MIT), a cross-platform
+speech-to-text app in Rust.
