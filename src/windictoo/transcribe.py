@@ -51,6 +51,11 @@ class Transcriber:
         self._loaded = False
         self._lock = threading.Lock()
         self._unload_timer: threading.Timer | None = None
+        # (megabytes on disk, megabytes expected) while a load is running,
+        # None otherwise. Read by the interface to draw a progress bar; a
+        # first run downloads 216 MB to 3 GB depending on the model, and
+        # without this the app simply sits there looking broken.
+        self.progress: tuple[float, float] | None = None
 
     @property
     def is_loaded(self) -> bool:
@@ -60,9 +65,27 @@ class Transcriber:
         self._cancel_unload_timer()
         with self._lock:
             if not self._loaded:
-                self._engine.load()
-                self._loaded = True
+                stop = threading.Event()
+                # Every path into the model — startup preload, the Settings
+                # button, and the first dictation after a model change — goes
+                # through here, so watching it here means all three report.
+                self.progress = (0.0, float(self.spec.size_mb))
+                watcher = threading.Thread(
+                    target=self._watch_download, args=(stop,), daemon=True)
+                watcher.start()
+                try:
+                    self._engine.load()
+                    self._loaded = True
+                finally:
+                    stop.set()
+                    self.progress = None
             return self._engine
+
+    def _watch_download(self, stop: threading.Event) -> None:
+        total = float(self.spec.size_mb)
+        while not stop.wait(0.3):
+            done = engine.bytes_on_disk(self.spec) / 1_000_000
+            self.progress = (min(done, total), total)
 
     def transcribe(self, audio: np.ndarray) -> tuple[str, str | None]:
         """Return (text, detected_language)."""

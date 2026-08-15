@@ -47,6 +47,16 @@ MODELS_DIR = CONFIG_DIR / "models"
 ONNX_MODELS_DIR = MODELS_DIR / "onnx"
 os.environ.setdefault("HF_HUB_CACHE", str(ONNX_MODELS_DIR))
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+# hf-xet fetches a model in chunks into a cache of its own, outside the
+# model folder, and only moves the finished files into place at the very
+# end. That makes a download invisible to the progress meter (which counts
+# bytes in the model folder — see engine.bytes_on_disk), so the app showed
+# 3% for the whole fetch and then jumped to done: exactly the "is it working
+# or not?" the meter exists to answer. Measured on Whisper tiny it was not
+# faster either — 18.8 s with xet against 17.2 s without — so the plain
+# downloader wins: its bytes land where they can be counted. setdefault, so
+# anyone who wants xet back can set the variable themselves.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 LOG_PATH = CONFIG_DIR / "windictoo.log"
 # A second launch writes this file to ask the running instance to show its
 # window (single-instance handoff), then exits.

@@ -84,6 +84,10 @@ class WinDictooGUI:
         # Set while quitting: state changes fired during shutdown (e.g. by
         # Dictation.cancel) must not touch the dying tk mainloop.
         self._closing = False
+        # Guards against several download-progress pumps ticking at once —
+        # the model can be loaded from Settings, from startup and from a
+        # dictation, and all three want to draw the same bar.
+        self._model_pump_running = False
 
         theme.apply(cfg.ui_theme)
         i18n.set_language(cfg.ui_language)
@@ -356,7 +360,10 @@ class WinDictooGUI:
         label = i18n.state_label(state)
         # The first transcription silently pays the model-load cost, which
         # looks like a hang — name what is actually happening.
-        if state is State.TRANSCRIBING and not self.dictation.transcriber.is_loaded:
+        loading_model = (
+            state is State.TRANSCRIBING and not self.dictation.transcriber.is_loaded
+        )
+        if loading_model:
             label = i18n.t("main.state_loading_model")
         self.status_lbl.configure(text=label,
                                   text_color=theme.STATE_COLOR.get(state, theme.TEXT))
@@ -375,6 +382,10 @@ class WinDictooGUI:
                                     text_color=theme.ON_ACCENT)
         if state is State.RECORDING:
             self._pump_level()
+        # After sub_lbl above, not before: the pump writes the download figure
+        # into that same label and must not be overwritten by this render.
+        if loading_model:
+            self._pump_model_progress()
         self._render_overlay(state)
 
     def _default_sub(self, state: State) -> str:
@@ -985,10 +996,16 @@ class WinDictooGUI:
                                          font=_font(11), text_color=theme.MUTED, wraplength=460,
                                          justify="left")
         self.model_status.pack(anchor="w", padx=14)
+        # Packed only while a download is running (see _show_model_bar): a
+        # first run pulls 216 MB to 3 GB, and an app that just sits silent for
+        # minutes reads as broken.
+        self.model_bar = ctk.CTkProgressBar(c1, progress_color=theme.ACCENT,
+                                            corner_radius=theme.RADIUS_WIDGET)
+        self.model_bar.set(0)
         ctk.CTkButton(c1, text=i18n.t("rec.btn_load_now"), corner_radius=theme.RADIUS_BUTTON,
                       fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
                       text_color=theme.ON_ACCENT,
-                      command=self._preload_model).pack(anchor="w", padx=14, pady=10)
+                      command=self._start_model_load).pack(anchor="w", padx=14, pady=10)
 
         c2 = self._card(tab, i18n.t("rec.card_params"))
         lv = ctk.StringVar(value=next(l[0] for l in LANGS if l[1] == self.cfg.language))
@@ -1236,8 +1253,11 @@ class WinDictooGUI:
         self.cfg.save()
         self.dictation.transcriber = Transcriber(self.cfg)
         self._refresh_chips()
-        self.model_status.configure(text=i18n.t("rec.model_will_load"))
         self._lang_note.configure(text=self._model_hint(spec))
+        # Start fetching it now, while the user is still looking at Settings.
+        # Otherwise the first dictation after a switch pays the whole download
+        # — minutes, with the app apparently frozen mid-sentence.
+        self._start_model_load()
 
     def _sync_language_widgets(self) -> None:
         """Push cfg.language back into the picker and the quick-switch button
@@ -1263,17 +1283,95 @@ class WinDictooGUI:
         self.cfg.save()
         self._build_chips()
 
-    def _preload_model(self) -> None:
-        self.model_status.configure(text=i18n.t("common.loading_model"))
+    # ------------------------------------------------------- model load + progress
+
+    def _alive(self, widget) -> bool:
+        """Settings widgets die with their window; the pump outlives it."""
+        try:
+            return widget is not None and bool(widget.winfo_exists())
+        except tk.TclError:
+            return False
+
+    def _model_status_text(self, text: str) -> None:
+        if self._alive(getattr(self, "model_status", None)):
+            self.model_status.configure(text=text)
+
+    def _show_model_bar(self, fraction: float, done_mb: float, total_mb: float) -> None:
+        text = i18n.t("rec.downloading", done=int(done_mb), total=int(total_mb),
+                      percent=int(fraction * 100))
+        bar = getattr(self, "model_bar", None)
+        if self._alive(bar):
+            if not bar.winfo_ismapped():
+                bar.pack(fill="x", padx=14, pady=(4, 2))
+            bar.set(fraction)
+            self._model_status_text(text)
+        try:
+            self.sub_lbl.configure(text=text)
+        except tk.TclError:
+            pass
+
+    def _hide_model_bar(self) -> None:
+        bar = getattr(self, "model_bar", None)
+        if self._alive(bar) and bar.winfo_ismapped():
+            bar.pack_forget()
+
+    def _start_model_load(self) -> None:
+        """Fetch and initialise the model in the background, with progress.
+
+        Called from the Settings button, at startup, and — the point of it —
+        the moment the user picks a different model, so the download happens
+        while they are still in Settings rather than in the middle of their
+        next dictation.
+        """
+        if self.dictation.transcriber.is_loaded:
+            self._model_status_text(i18n.t("common.model_loaded"))
+            return
+        self._model_status_text(i18n.t("common.loading_model"))
 
         def work() -> None:
             try:
                 self.dictation.transcriber.load()
-                self.root.after(0, lambda: self.model_status.configure(text=i18n.t("common.model_loaded")))
+                msg = i18n.t("common.model_loaded")
             except Exception as exc:  # noqa: BLE001
-                self.root.after(0, lambda: self.model_status.configure(text=i18n.t("common.error_with", error=exc)))
+                log.exception("model load failed")
+                msg = i18n.t("common.error_with", error=exc)
+
+            def done() -> None:
+                self._hide_model_bar()
+                self._model_status_text(msg)
+
+            try:
+                self.root.after(0, done)
+            except RuntimeError:
+                pass
 
         threading.Thread(target=work, daemon=True).start()
+        self._pump_model_progress()
+
+    def _pump_model_progress(self) -> None:
+        """Redraw the download bar until the model is in memory."""
+        if self._closing or self._model_pump_running:
+            return
+        self._model_pump_running = True
+        self._tick_model_progress()
+
+    def _tick_model_progress(self) -> None:
+        if self._closing:
+            self._model_pump_running = False
+            return
+        transcriber = self.dictation.transcriber
+        progress = transcriber.progress
+        if progress is not None:
+            done_mb, total_mb = progress
+            self._show_model_bar(done_mb / total_mb if total_mb else 0.0, done_mb, total_mb)
+        if transcriber.is_loaded:
+            self._model_pump_running = False
+            self._hide_model_bar()
+            return
+        try:
+            self.root.after(300, self._tick_model_progress)
+        except RuntimeError:
+            self._model_pump_running = False
 
     # ----------------------------------------------------------- hotkey capture
 
@@ -1604,6 +1702,8 @@ class WinDictooGUI:
         if self.dictation.transcriber.is_loaded:
             return
         self.sub_lbl.configure(text=i18n.t("preload.loading"))
+        # Draws the download bar on the hero card while the thread below runs.
+        self._pump_model_progress()
 
         def work() -> None:
             try:

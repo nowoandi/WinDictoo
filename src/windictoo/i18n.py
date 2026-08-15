@@ -360,6 +360,16 @@ STRINGS: dict[str, dict[str, str]] = {
         "tr": "tiny/base — hızlı · small — dengeli · large-v3 — daha isabetli",
         "hy": "tiny/base — արագ · small — հավասարակշռված · large-v3 — ավելի ճշգրիտ",
     },
+    "rec.downloading": {
+        "ru": "Загрузка модели… {done} из {total} МБ ({percent}%)",
+        "en": "Downloading the model… {done} of {total} MB ({percent}%)",
+        "de": "Modell wird heruntergeladen… {done} von {total} MB ({percent}%)",
+        "fr": "Téléchargement du modèle… {done} sur {total} Mo ({percent} %)",
+        "es": "Descargando el modelo… {done} de {total} MB ({percent} %)",
+        "zh": "正在下载模型… {done} / {total} MB（{percent}%）",
+        "tr": "Model indiriliyor… {total} MB’ın {done} MB’ı (%{percent})",
+        "hy": "Մոդելը ներբեռնվում է… {done} / {total} ՄԲ ({percent}%)",
+    },
     "rec.btn_load_now": {
         "ru": "Загрузить модель сейчас", "en": "Load model now", "de": "Modell jetzt laden",
         "fr": "Charger le modèle maintenant", "es": "Cargar modelo ahora", "zh": "立即加载模型",

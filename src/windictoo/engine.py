@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 import numpy as np
@@ -53,6 +54,10 @@ class ModelSpec:
     `id` is what lands in config.json; `backend` is what the backend itself
     calls the model. They differ for the onnx entries so the config stays
     readable ("gigaam-v3-ru") and stable if we ever switch variant.
+
+    `hf_repo` is only used to find the files on disk and measure download
+    progress — both backends fetch through huggingface_hub, which lays a
+    repository out as "models--<owner>--<name>" under its cache root.
     """
 
     id: str
@@ -60,6 +65,7 @@ class ModelSpec:
     backend: str
     title: str
     size_mb: int
+    hf_repo: str
     # Languages the model can transcribe; None means "every Whisper language".
     langs: tuple[str, ...] | None
     # False when the model ignores Config.language (picks or fixes it itself).
@@ -85,18 +91,24 @@ class ModelSpec:
 
 
 MODELS: tuple[ModelSpec, ...] = (
-    ModelSpec("tiny", WHISPER, "tiny", "Whisper tiny", 75, None, True),
-    ModelSpec("base", WHISPER, "base", "Whisper base", 145, None, True),
-    ModelSpec("small", WHISPER, "small", "Whisper small", 485, None, True),
-    ModelSpec("medium", WHISPER, "medium", "Whisper medium", 1500, None, True),
-    ModelSpec("large-v3", WHISPER, "large-v3", "Whisper large-v3", 3000, None, True),
+    ModelSpec("tiny", WHISPER, "tiny", "Whisper tiny", 75,
+              "Systran/faster-whisper-tiny", None, True),
+    ModelSpec("base", WHISPER, "base", "Whisper base", 145,
+              "Systran/faster-whisper-base", None, True),
+    ModelSpec("small", WHISPER, "small", "Whisper small", 485,
+              "Systran/faster-whisper-small", None, True),
+    ModelSpec("medium", WHISPER, "medium", "Whisper medium", 1500,
+              "Systran/faster-whisper-medium", None, True),
+    ModelSpec("large-v3", WHISPER, "large-v3", "Whisper large-v3", 3000,
+              "Systran/faster-whisper-large-v3", None, True),
     ModelSpec(
-        "gigaam-v3-ru", ONNX, "gigaam-v3-e2e-rnnt", "GigaAM v3",
-        216, ("ru",), False, quantization="int8",
+        "gigaam-v3-ru", ONNX, "gigaam-v3-e2e-rnnt", "GigaAM v3", 216,
+        "istupakov/gigaam-v3-onnx", ("ru",), False, quantization="int8",
     ),
     ModelSpec(
-        "parakeet-v3", ONNX, "nemo-parakeet-tdt-0.6b-v3", "Parakeet v3",
-        639, _PARAKEET_LANGS, False, quantization="int8",
+        "parakeet-v3", ONNX, "nemo-parakeet-tdt-0.6b-v3", "Parakeet v3", 639,
+        "istupakov/parakeet-tdt-0.6b-v3-onnx", _PARAKEET_LANGS, False,
+        quantization="int8",
     ),
 )
 
@@ -122,6 +134,47 @@ def spec(model_id: str) -> ModelSpec:
 def models_for(lang: str) -> tuple[ModelSpec, ...]:
     """Catalogue entries able to handle `lang`."""
     return tuple(m for m in MODELS if m.supports(lang))
+
+
+# ------------------------------------------------------------ download progress
+
+
+def model_dir(model: ModelSpec) -> Path:
+    """Where huggingface_hub puts this model's files."""
+    root = ONNX_MODELS_DIR if model.engine == ONNX else MODELS_DIR
+    return root / ("models--" + model.hf_repo.replace("/", "--"))
+
+
+def bytes_on_disk(model: ModelSpec) -> int:
+    """How much of the model is already downloaded.
+
+    Measuring the directory beats hooking huggingface_hub's progress bars:
+    it is the same for both backends, survives their internals changing, and
+    counts the partial ".incomplete" files a download is still writing. It is
+    an estimate — ModelSpec.size_mb is the published size of the variant we
+    ask for, and a directory can also hold files from an earlier download of
+    a different quantisation — so callers should clamp it.
+    """
+    directory = model_dir(model)
+    if not directory.exists():
+        return 0
+    total = 0
+    try:
+        for path in directory.rglob("*"):
+            if path.is_file():
+                try:
+                    total += path.stat().st_size
+                except OSError:  # vanished mid-walk; it is only an estimate
+                    pass
+    except OSError:
+        return total
+    return total
+
+
+def download_fraction(model: ModelSpec) -> float:
+    """0.0-1.0 of the expected download, clamped."""
+    expected = max(1, model.size_mb) * 1_000_000
+    return min(1.0, bytes_on_disk(model) / expected)
 
 
 # --------------------------------------------------------------------- engines

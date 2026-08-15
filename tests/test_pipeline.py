@@ -725,6 +725,70 @@ def test_lazy_mode_keeps_the_stream_but_still_releases_it():
     assert rec._release_timer is None, "the pending close timer must be cancelled"
 
 
+# -------------------------------------------------------- model download progress
+
+
+def test_model_dir_follows_the_huggingface_layout():
+    """Progress is measured off disk, so the path has to be right."""
+    from windictoo import engine
+
+    assert engine.model_dir(engine.spec("gigaam-v3-ru")).name == \
+        "models--istupakov--gigaam-v3-onnx"
+    assert engine.model_dir(engine.spec("small")).name == \
+        "models--Systran--faster-whisper-small"
+
+
+def test_bytes_on_disk_is_zero_before_anything_is_downloaded(tmp_path, monkeypatch):
+    from windictoo import engine
+
+    monkeypatch.setattr(engine, "ONNX_MODELS_DIR", tmp_path / "absent")
+    assert engine.bytes_on_disk(engine.spec("gigaam-v3-ru")) == 0
+    assert engine.download_fraction(engine.spec("gigaam-v3-ru")) == 0.0
+
+
+def test_download_fraction_never_exceeds_one(monkeypatch):
+    """A directory can hold more than we expect — an earlier download of a
+    different quantisation, say — and a progress bar past 100% looks broken."""
+    from windictoo import engine
+
+    monkeypatch.setattr(engine, "bytes_on_disk", lambda m: 10 ** 12)
+    assert engine.download_fraction(engine.spec("small")) == 1.0
+
+
+def test_progress_is_published_while_loading_and_cleared_afterwards(monkeypatch):
+    """Without this the app sits silent for minutes on a first run and reads
+    as frozen — which is exactly what users reported."""
+    import threading
+    import time
+
+    from windictoo import engine as engine_mod
+
+    monkeypatch.setattr(engine_mod, "bytes_on_disk", lambda m: 100_000_000)
+
+    class SlowEngine:
+        def load(self):
+            time.sleep(0.9)  # long enough for the 0.3 s watcher to tick
+
+        def transcribe(self, audio):
+            raise AssertionError("not used here")
+
+    transcriber = Transcriber(Config(model="small"))
+    transcriber._engine = SlowEngine()
+
+    worker = threading.Thread(target=transcriber.load)
+    worker.start()
+    time.sleep(0.5)
+    mid_load = transcriber.progress
+    worker.join(timeout=10)
+
+    assert mid_load is not None, "no progress was published during the load"
+    done_mb, total_mb = mid_load
+    assert done_mb == pytest.approx(100.0, abs=1.0)
+    assert total_mb == 485.0, "total should come from the catalogue"
+    assert transcriber.progress is None, "progress must be cleared when done"
+    assert transcriber.is_loaded
+
+
 # ----------------------------------------------------------- update asset choice
 
 
