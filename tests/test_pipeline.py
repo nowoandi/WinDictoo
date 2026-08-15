@@ -746,6 +746,22 @@ def test_capturing_nothing_at_all_drops_the_stream():
     assert rec._stream is None and closed, "a stream that gave nothing must go"
 
 
+def test_release_mid_recording_leaves_no_half_state():
+    """A model switch releases the microphone. If that lands while something
+    is recording, the recording is lost — but the recorder must not be left
+    marked as recording with no device behind it."""
+    closed: list = []
+    rec = _recorder(Config(mic_mode="lazy", preroll_ms=0, tail_ms=0), closed)
+    rec.start()
+    _feed(rec, 0.5)
+    assert rec.is_recording
+
+    rec.release()
+    assert rec.is_recording is False
+    assert rec._stream is None and closed
+    assert rec._chunks == [], "the abandoned audio must not linger"
+
+
 def test_lazy_mode_keeps_the_stream_but_still_releases_it():
     import time
 

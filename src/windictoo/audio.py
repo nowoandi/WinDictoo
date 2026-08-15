@@ -279,8 +279,17 @@ class Recorder:
             log.info("microphone closed")
 
     def release(self) -> None:
-        """Close the stream now — device change, or application shutdown."""
-        self._close_stream()
+        """Close the stream now — device change, model change, or shutdown.
+
+        A recording in flight is abandoned rather than left pointing at a
+        device that is going away: better to lose it outright than to leave
+        the recorder marked as recording with nothing behind it.
+        """
+        with self._stream_lock:
+            if self.is_recording:
+                log.info("releasing the microphone mid-recording; dictation dropped")
+                self._collect()
+            self._close_stream()
 
     def _cancel_release_timer(self) -> None:
         if self._release_timer is not None:

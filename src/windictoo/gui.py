@@ -1271,6 +1271,14 @@ class WinDictooGUI:
                 pass
         self._model_load_after = self.root.after(600, self._start_model_load)
 
+        # Let go of the microphone across the switch. Loading a model is what
+        # preceded the capture stream going silently dead — open, error-free
+        # and delivering nothing — and a device reopened afterwards is known
+        # to work. Cheaper than diagnosing what a model load does to WASAPI,
+        # and it costs only the reopen on the next dictation.
+        if self.dictation.state is State.IDLE:
+            self.dictation.recorder.release()
+
     def _sync_language_widgets(self) -> None:
         """Push cfg.language back into the picker and the quick-switch button
         after something other than the picker changed it."""
@@ -1351,6 +1359,10 @@ class WinDictooGUI:
             def done() -> None:
                 self._hide_model_bar()
                 self._model_status_text(msg)
+                # _set_model let the microphone go across the switch; give it
+                # back to anyone who asked for it to stay open. A no-op in
+                # every other mode, where the next dictation opens it anyway.
+                self.dictation.warm_up()
 
             try:
                 self.root.after(0, done)
