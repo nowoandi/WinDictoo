@@ -88,6 +88,8 @@ class WinDictooGUI:
         # the model can be loaded from Settings, from startup and from a
         # dictation, and all three want to draw the same bar.
         self._model_pump_running = False
+        # Pending debounced model load; see _set_model.
+        self._model_load_after: str | None = None
 
         theme.apply(cfg.ui_theme)
         i18n.set_language(cfg.ui_language)
@@ -1254,10 +1256,20 @@ class WinDictooGUI:
         self.dictation.transcriber = Transcriber(self.cfg)
         self._refresh_chips()
         self._lang_note.configure(text=self._model_hint(spec))
-        # Start fetching it now, while the user is still looking at Settings.
-        # Otherwise the first dictation after a switch pays the whole download
-        # — minutes, with the app apparently frozen mid-sentence.
-        self._start_model_load()
+        # Start fetching it, while the user is still looking at Settings —
+        # otherwise the first dictation after a switch pays the whole download,
+        # minutes of it, with the app apparently frozen mid-sentence.
+        #
+        # Debounced, because trying models out means clicking through several
+        # in a row: without this each click started its own load, so three
+        # switches meant three onnxruntime sessions spinning up at once, each
+        # with its own pool of worker threads. Only the last choice matters.
+        if self._model_load_after is not None:
+            try:
+                self.root.after_cancel(self._model_load_after)
+            except (ValueError, tk.TclError):
+                pass
+        self._model_load_after = self.root.after(600, self._start_model_load)
 
     def _sync_language_widgets(self) -> None:
         """Push cfg.language back into the picker and the quick-switch button

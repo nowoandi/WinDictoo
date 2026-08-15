@@ -114,6 +114,7 @@ class Recorder:
         self._ring_samples = 0
         self._preroll_samples = 0
         self._hold_started = 0.0
+        self._last_block_at = 0.0
         self.level = 0.0
         self.is_recording = False
         self._stream_rate = SAMPLE_RATE
@@ -132,6 +133,9 @@ class Recorder:
     def _callback(self, indata, frames, time_info, status) -> None:
         if status:
             log.debug("audio status: %s", status)
+        # Proof of life for _stream_is_dead(): a long-lived stream can stop
+        # delivering without erroring or closing.
+        self._last_block_at = time.monotonic()
         block = indata[:, 0].copy()
         with self._lock:
             if self.is_recording:
@@ -256,6 +260,9 @@ class Recorder:
             self._cancel_release_timer()
             stream, self._stream = self._stream, None
             self._open_device = None
+            # A fresh stream has not delivered anything yet, so it must not
+            # inherit the old one's timestamp and be judged dead on sight.
+            self._last_block_at = 0.0
             with self._lock:
                 self._ring.clear()
                 self._ring_samples = 0
@@ -297,12 +304,42 @@ class Recorder:
 
     # ------------------------------------------------------------ recording API
 
+    # How long an open stream may go without delivering a block before it is
+    # written off as dead. Blocks arrive roughly every 64 ms at 1024 frames /
+    # 16 kHz (21 ms at a device's native 48 kHz), so a second is a wide margin.
+    DEAD_STREAM_SEC = 1.0
+
+    def _stream_is_dead(self) -> bool:
+        """True when the stream is open but has stopped delivering audio.
+
+        Observed in the wild: after several model switches in quick
+        succession, the WASAPI stream stayed open and error-free while its
+        callback never fired again. Two dictations in a row captured zero
+        samples — the recording was reported as silent, which read as "the
+        recognition model is broken". Reopening the device cured it.
+
+        While the stream was on-demand this could not persist, because every
+        dictation opened a fresh one; a long-lived stream has to notice for
+        itself.
+        """
+        return (
+            self._stream is not None
+            and self._last_block_at > 0.0
+            and time.monotonic() - self._last_block_at > self.DEAD_STREAM_SEC
+        )
+
     def start(self, device: int | None = None) -> None:
         """`device` overrides the user's saved microphone choice (see
         Config.input_device_index); None means "use the saved one"."""
         with self._stream_lock:
             if self.is_recording:
                 return
+            if self._stream_is_dead():
+                log.warning(
+                    "microphone stopped delivering audio %.1fs ago; reopening",
+                    time.monotonic() - self._last_block_at,
+                )
+                self._close_stream()
             self.ensure_stream(device)  # raises if nothing could be opened
             with self._lock:
                 # Seed the recording with the pre-roll window, so the buffer
@@ -358,7 +395,15 @@ class Recorder:
                 # start() has only just finished — this was a tap, not speech.
                 held = time.monotonic() - self._hold_started
             raw, preroll = self._collect()
-            self._schedule_release()
+            if raw.size == 0 and self._stream is not None:
+                # Not "the room was quiet" — the device handed us nothing at
+                # all, so it is the stream that failed, not the microphone.
+                # Drop it now: the next attempt then opens a fresh one instead
+                # of losing a second dictation to the same dead stream.
+                log.warning("captured no audio at all; dropping the stream so it reopens")
+                self._close_stream()
+            else:
+                self._schedule_release()
         audio = _resample(raw, self._stream_rate, SAMPLE_RATE)
 
         if held < MIN_DURATION:

@@ -707,6 +707,45 @@ def test_preroll_ring_stays_bounded():
     assert rec._ring_samples == sum(len(b) for b in rec._ring), "sample count drifted"
 
 
+def test_a_stream_that_stopped_delivering_is_reopened():
+    """Seen in the wild: after several model switches in a row the WASAPI
+    stream stayed open and error-free while its callback never fired again.
+    Two dictations captured zero samples, were reported as silent, and the
+    recognition model got the blame. While the stream was opened per
+    dictation this could not persist; a long-lived one has to notice."""
+    import time
+
+    closed: list = []
+    rec = _recorder(Config(mic_mode="lazy", preroll_ms=400, tail_ms=0), closed)
+    _feed(rec, 0.1)  # alive...
+    rec._last_block_at = time.monotonic() - 5.0  # ...and then it went quiet
+    assert rec._stream_is_dead()
+
+    previous = rec._stream
+    rec.start()
+    assert rec._stream is not previous, "a dead stream must be replaced"
+    assert closed, "the dead stream must actually be closed"
+    assert not rec._stream_is_dead(), "a fresh stream must not look dead"
+
+
+def test_capturing_nothing_at_all_drops_the_stream():
+    """Zero samples is not 'the room was quiet' — the device failed. Keeping
+    that stream would lose the next dictation to it as well."""
+    import time
+
+    from windictoo import audio
+
+    closed: list = []
+    rec = _recorder(Config(mic_mode="lazy", preroll_ms=0, tail_ms=0), closed)
+    rec.start()
+    rec._hold_started = time.monotonic() - 2.0  # a real hold, not a mis-tap
+
+    with pytest.raises(audio.EmptyRecording) as exc:
+        rec.stop()
+    assert exc.value.reason == "silent"
+    assert rec._stream is None and closed, "a stream that gave nothing must go"
+
+
 def test_lazy_mode_keeps_the_stream_but_still_releases_it():
     import time
 
