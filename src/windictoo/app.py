@@ -32,6 +32,7 @@ class Dictation:
     def __init__(self, cfg: Config) -> None:
         self.cfg = cfg
         self.recorder = Recorder(cfg)
+        self.recorder.on_device_retired = self._forget_pinned_device
         self.transcriber = Transcriber(cfg)
         self.state = State.IDLE
         self.message = ""
@@ -44,6 +45,22 @@ class Dictation:
         self._target_hwnd = 0
         self._lock = threading.Lock()
         self._cancelled = threading.Event()
+
+    def _forget_pinned_device(self, device: object) -> None:
+        """Stop pinning an input just caught delivering nothing but silence.
+
+        The recorder skips it for the rest of the session, but the config
+        outlives the session: a dead index stayed in input_device_index and
+        every single launch spent two holds rediscovering that it is dead.
+        Falling back to the system default costs nothing if the device comes
+        back — Windows hands it over again — and saves those two holds.
+        """
+        if device is None or device != self.cfg.input_device_index:
+            return
+        log.warning("input device %s dropped from the settings; following the "
+                    "system default from now on", device)
+        self.cfg.input_device_index = None
+        self.cfg.save()
 
     def warm_up(self) -> None:
         """Open the microphone ahead of the first hotkey, if the user asked

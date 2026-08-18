@@ -358,15 +358,25 @@ class WinDictooGUI:
         except RuntimeError:
             pass  # mainloop already stopped (shutdown race)
 
+    def _waiting_for_model(self, state: State) -> bool:
+        """The first transcription silently pays the model load, and on a cold
+        cache that load is a download of minutes."""
+        return state is State.TRANSCRIBING and not self.dictation.transcriber.is_loaded
+
+    def _live_state_label(self, state: State) -> str:
+        """What is actually happening, which is not always the state's own name.
+
+        Used by the window *and* the overlay. The overlay is the only one of the
+        two that somebody dictating into another application can see, and it
+        used to announce "transcribing" through an entire model download.
+        """
+        if self._waiting_for_model(state):
+            return i18n.t("main.state_loading_model")
+        return i18n.state_label(state)
+
     def _render(self, state: State) -> None:
-        label = i18n.state_label(state)
-        # The first transcription silently pays the model-load cost, which
-        # looks like a hang — name what is actually happening.
-        loading_model = (
-            state is State.TRANSCRIBING and not self.dictation.transcriber.is_loaded
-        )
-        if loading_model:
-            label = i18n.t("main.state_loading_model")
+        loading_model = self._waiting_for_model(state)
+        label = self._live_state_label(state)
         self.status_lbl.configure(text=label,
                                   text_color=theme.STATE_COLOR.get(state, theme.TEXT))
         self.mic.set_state(state)
@@ -482,10 +492,36 @@ class WinDictooGUI:
         self._ov_dot_photo = aa_image(24, 24, theme.CARD,
                                       lambda d, k, col=col: d.ellipse([3 * k, 3 * k, 21 * k, 21 * k], fill=col))
         self._ov_dot.create_image(0, 0, anchor="nw", image=self._ov_dot_photo)
-        self._ov_label.configure(text=i18n.state_label(state))
+        self._ov_label.configure(text=self._live_state_label(state))
         self._ov_msg.configure(text=self.dictation.message or self._default_sub(state))
         self._ov_eq.set_active(state is State.RECORDING)
         self._draw_overlay_button(hover=False)
+        if self._waiting_for_model(state):
+            self._spin_overlay()
+
+    def _spin_overlay(self, angle: int = 0) -> None:
+        """Turn the overlay dot into a rotating arc while the model loads.
+
+        A still dot through a load that can run for minutes reads as a frozen
+        app — which is exactly the "is it working or not?" this is here to
+        answer. Stops on its own as soon as the state moves on; _render_overlay
+        then paints the plain dot again.
+        """
+        if self._closing or self.overlay is None:
+            return
+        if not self._waiting_for_model(self.dictation.state):
+            return
+        col = theme.STATE_COLOR.get(State.TRANSCRIBING, theme.ACCENT)
+        self._ov_dot.delete("all")
+        self._ov_dot_photo = aa_image(
+            24, 24, theme.CARD,
+            lambda d, k, a=angle: d.arc([3 * k, 3 * k, 21 * k, 21 * k],
+                                        a, a + 110, fill=col, width=3 * k))
+        self._ov_dot.create_image(0, 0, anchor="nw", image=self._ov_dot_photo)
+        try:
+            self.root.after(80, lambda: self._spin_overlay((angle + 35) % 360))
+        except RuntimeError:
+            pass  # mainloop already stopped
 
     def _build_overlay(self) -> None:
         ov = tk.Toplevel(self.root)
@@ -1342,6 +1378,14 @@ class WinDictooGUI:
             self.sub_lbl.configure(text=text)
         except tk.TclError:
             pass
+        # The overlay is what somebody dictating into another window actually
+        # looks at, so the figure has to reach it as well.
+        ov_msg = getattr(self, "_ov_msg", None)
+        if self._alive(ov_msg):
+            try:
+                ov_msg.configure(text=text)
+            except tk.TclError:
+                pass
 
     def _hide_model_bar(self) -> None:
         bar = getattr(self, "model_bar", None)

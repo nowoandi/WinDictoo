@@ -27,6 +27,7 @@ import collections
 import logging
 import threading
 import time
+from collections.abc import Callable
 
 import numpy as np
 import sounddevice as sd
@@ -141,6 +142,12 @@ class Recorder:
         # that was *asked* for (the config value, used to spot a user swap),
         # which after a fallback is not the one carrying the audio.
         self._active_device: int | None = None
+        # Called with the retired device when one is caught delivering nothing
+        # but silence, so whoever owns the settings can stop pinning it. A hook
+        # rather than a config write of our own on purpose: the onboarding
+        # microphone test builds a throwaway Recorder on a default Config, and
+        # saving that would overwrite the user's real settings.
+        self.on_device_retired: Callable[[object], None] | None = None
 
     # ------------------------------------------------------------- capture path
 
@@ -470,6 +477,11 @@ class Recorder:
                     # that mode keep the dead input forever.
                     self._close_stream()
                 self._silent_runs.pop(self._active_device, None)
+                if self.on_device_retired is not None:
+                    try:
+                        self.on_device_retired(self._active_device)
+                    except Exception:  # noqa: BLE001 - a hook must not break dictation
+                        log.exception("on_device_retired hook failed")
         if peak < MIN_PEAK:
             # Long enough to be a real attempt, but not a whisper of signal —
             # this is "the microphone isn't picking anything up", not "you let

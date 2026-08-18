@@ -401,6 +401,67 @@ def test_missing_model_is_reported_as_missing_not_as_a_loader_crash(monkeypatch)
         transcribe.Transcriber(Config(model="gigaam-v3-ru")).load()
 
 
+def test_retiring_a_silent_device_notifies_its_owner():
+    """The recorder must announce a retirement, not just act on it: the skip
+    list lives for one session only."""
+    import time
+
+    from windictoo import audio
+
+    class FakeStream:
+        def start(self): pass
+        def stop(self): pass
+        def close(self): pass
+
+    rec = audio.Recorder(
+        Config(input_device_index=27, mic_mode="on_demand", preroll_ms=0, tail_ms=0)
+    )
+    rec._make_stream = lambda device, rate: FakeStream()
+    retired = []
+    rec.on_device_retired = retired.append
+
+    for _ in range(audio.SILENT_STRIKES):
+        rec.ensure_stream()
+        with rec._lock:
+            rec.is_recording = True
+            rec._chunks = [np.zeros(audio.SAMPLE_RATE, dtype=np.float32)]
+        rec._hold_started = time.monotonic() - 1.0
+        with pytest.raises(audio.EmptyRecording):
+            rec.stop()
+
+    assert retired == [27], f"expected one retirement of device 27, got {retired}"
+
+
+def test_a_silent_device_stops_being_pinned_in_the_settings(monkeypatch):
+    """The skip list dies with the session but input_device_index does not, so a
+    dead index stayed in the config and every single launch spent two holds
+    rediscovering that it is dead. Retiring an input must clear the pin, leaving
+    the app on the system default — which costs nothing if the device returns.
+    """
+    from windictoo import app, engine
+    from windictoo import config as config_mod
+
+    monkeypatch.setattr(engine, "make", lambda cfg, spec: object())
+    saved = []
+    monkeypatch.setattr(config_mod.Config, "save",
+                        lambda self: saved.append(self.input_device_index))
+
+    cfg = Config(input_device_index=21)
+    dictation = app.Dictation(cfg)
+    assert dictation.recorder.on_device_retired is not None, (
+        "the recorder has to be wired to whoever owns the settings"
+    )
+
+    dictation.recorder.on_device_retired(15)
+    assert cfg.input_device_index == 21 and saved == [], (
+        "another input going silent must not touch the pin"
+    )
+
+    dictation.recorder.on_device_retired(21)
+    assert cfg.input_device_index is None
+    assert saved == [None], "the change has to survive the restart"
+
+
 def test_split_uninstall_command():
     from windictoo import oldversions
 
