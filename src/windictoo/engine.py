@@ -177,6 +177,46 @@ def download_fraction(model: ModelSpec) -> float:
     return min(1.0, bytes_on_disk(model) / expected)
 
 
+# A snapshot whose largest file falls short of this share of the published size
+# carries a config and a vocabulary but no weights: a partial materialisation.
+_WEIGHT_SHARE = 0.5
+
+
+def snapshot_dir(model: ModelSpec) -> Path | None:
+    """The cached revision huggingface_hub would resolve this model to."""
+    directory = model_dir(model)
+    try:
+        sha = (directory / "refs" / "main").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    snapshot = directory / "snapshots" / sha
+    return snapshot if snapshot.is_dir() else None
+
+
+def is_on_disk(model: ModelSpec) -> bool:
+    """True when the cache really holds this model, weights and all.
+
+    A download that crashed or was interrupted leaves "refs" and "trees"
+    behind and no snapshot at all. The model folder then exists, bytes_on_disk
+    reports a few kilobytes, and huggingface_hub still knows the revision — so
+    a model that had never been fetched looked installed, and picking it failed
+    with whatever broke deepest inside the loader instead of with "it is not
+    downloaded". Judged here from the files rather than by asking the backend,
+    which is the very code that reports this badly.
+    """
+    snapshot = snapshot_dir(model)
+    if snapshot is None:
+        return False
+    biggest = 0
+    for path in snapshot.rglob("*"):
+        if path.is_file():
+            try:
+                biggest = max(biggest, path.stat().st_size)
+            except OSError:  # vanished mid-walk
+                pass
+    return biggest >= _WEIGHT_SHARE * max(1, model.size_mb) * 1_000_000
+
+
 # --------------------------------------------------------------------- engines
 
 

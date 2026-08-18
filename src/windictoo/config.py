@@ -57,6 +57,14 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 # downloader wins: its bytes land where they can be counted. setdefault, so
 # anyone who wants xet back can set the variable themselves.
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+# A windowed build has no console, so sys.stdout and sys.stderr are None, and
+# huggingface_hub's download bar writes straight to them: fetching a model died
+# on "AttributeError: 'NoneType' object has no attribute 'write'" inside tqdm
+# before a single byte landed. Picking a model that still had to be downloaded
+# therefore could never succeed from the packaged app, only from a console run.
+# No loss either way — progress is measured from the model folder here (see
+# engine.bytes_on_disk), never from these bars.
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 LOG_PATH = CONFIG_DIR / "windictoo.log"
 # A second launch writes this file to ask the running instance to show its
 # window (single-instance handoff), then exits.

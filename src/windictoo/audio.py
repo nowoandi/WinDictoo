@@ -39,6 +39,10 @@ SAMPLE_RATE = 16000
 # Below this, Whisper has nothing usable: a mis-tap or a dead microphone.
 MIN_DURATION = 0.35
 MIN_PEAK = 0.005
+# A peak of exactly 0.0 means the input carries no signal at all rather than a
+# quiet room. A hardware mute switch looks identical, though, so an input is
+# only given up on after this many such holds in a row.
+SILENT_STRIKES = 2
 
 
 class EmptyRecording(Exception):
@@ -123,6 +127,20 @@ class Recorder:
         # device -> sample rate known to work, so the 16 kHz attempt that this
         # device already rejected is not repeated on every single recording.
         self._rate_cache: dict[object, int] = {}
+        # Inputs caught delivering nothing but digital zeros. The fallback chain
+        # in ensure_stream only reacts to devices that fail to *open*, and these
+        # open perfectly well — a line input with an empty socket, typically —
+        # so they have to be remembered separately and skipped.
+        self._silent_devices: set[object] = set()
+        # device -> consecutive digitally silent holds on it. Counted per device
+        # rather than per stream on purpose: mic_mode "on_demand" opens a fresh
+        # stream for every single hold, so a counter tied to the stream would
+        # reset before it could ever reach SILENT_STRIKES.
+        self._silent_runs: dict[object, int] = {}
+        # The device ensure_stream actually opened. _open_device keeps the one
+        # that was *asked* for (the config value, used to spot a user swap),
+        # which after a fallback is not the one carrying the audio.
+        self._active_device: int | None = None
 
     # ------------------------------------------------------------- capture path
 
@@ -236,18 +254,26 @@ class Recorder:
             if preferred is not None and preferred not in candidates:
                 candidates.append(preferred)
             candidates.append(None)
+            # Inputs already caught carrying pure silence drop out here. If that
+            # empties the chain, forget them and try everything again rather
+            # than leave the session with no microphone at all.
+            usable = [d for d in candidates if d not in self._silent_devices]
+            if not usable:
+                self._silent_devices.clear()
+                usable = candidates
 
             last_exc: Exception | None = None
-            for i, dev in enumerate(candidates):
+            for i, dev in enumerate(usable):
                 try:
                     stream, rate = self._open_stream(dev)
                 except Exception as exc:  # noqa: BLE001
                     last_exc = exc
-                    if i < len(candidates) - 1:
+                    if i < len(usable) - 1:
                         log.warning("input device %s failed (%s), trying next", dev, exc)
                     continue
                 self._stream, self._stream_rate = stream, rate
                 self._open_device = device
+                self._active_device = dev
                 with self._lock:
                     self._ring.clear()
                     self._ring_samples = 0
@@ -422,6 +448,28 @@ class Recorder:
             log.info("recording rejected as too short (held %.2fs)", held)
             raise EmptyRecording("short")
         peak = float(np.abs(audio).max()) if audio.size else 0.0
+        if peak > 0.0:
+            self._silent_runs.pop(self._active_device, None)
+        elif audio.size:
+            # Exactly zero, not merely quiet: a live microphone always carries
+            # some noise floor, so this input is handing over nothing. It opened
+            # without complaint, so the fallback in ensure_stream never saw it,
+            # and every later hold would keep landing on the same dead input.
+            run = self._silent_runs.get(self._active_device, 0) + 1
+            self._silent_runs[self._active_device] = run
+            log.warning("device %s delivered digital silence (%d in a row)",
+                        self._active_device, run)
+            if run >= SILENT_STRIKES:
+                with self._stream_lock:
+                    self._silent_devices.add(self._active_device)
+                    log.warning("giving up on device %s; the next hold picks another input",
+                                self._active_device)
+                    # Already closed under mic_mode "on_demand", which
+                    # _schedule_release did a few lines up; closing again is a
+                    # no-op, and gating on an open stream here would have let
+                    # that mode keep the dead input forever.
+                    self._close_stream()
+                self._silent_runs.pop(self._active_device, None)
         if peak < MIN_PEAK:
             # Long enough to be a real attempt, but not a whisper of signal —
             # this is "the microphone isn't picking anything up", not "you let

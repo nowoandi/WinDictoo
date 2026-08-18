@@ -1,6 +1,6 @@
 [project]
 name = "windictoo"
-version = "1.8.2"
+version = "1.8.4"
 description = "Локальный голосовой ввод для Windows: горячая клавиша, Whisper, вставка в активное поле"
 readme = "README.md"
 license = "MIT"

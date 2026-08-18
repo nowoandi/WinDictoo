@@ -20,6 +20,18 @@ from .config import Config
 
 log = logging.getLogger(__name__)
 
+
+class ModelNotDownloaded(RuntimeError):
+    """The model is not in the cache and could not be fetched.
+
+    Carries the spec so the caller can name the model and its size instead of
+    showing whatever the loader happened to raise.
+    """
+
+    def __init__(self, spec: engine.ModelSpec) -> None:
+        super().__init__(f"{spec.title} is not downloaded")
+        self.spec = spec
+
 # Square-bracket annotations are never real dictation output.
 _BRACKET = re.compile(r"\[[^\]\n]{0,60}\]")
 _PAREN_MARKERS = (
@@ -76,6 +88,15 @@ class Transcriber:
                 try:
                     self._engine.load()
                     self._loaded = True
+                except Exception as exc:
+                    # Both backends report a model missing from the cache as
+                    # whatever failed deepest inside huggingface_hub — in one
+                    # memorable case an AttributeError raised by a progress
+                    # bar — which told the user nothing about the real problem.
+                    # Check the cache here and name it plainly.
+                    if not engine.is_on_disk(self.spec):
+                        raise ModelNotDownloaded(self.spec) from exc
+                    raise
                 finally:
                     stop.set()
                     self.progress = None

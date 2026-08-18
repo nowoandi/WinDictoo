@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import threading
 
@@ -32,6 +33,20 @@ def setup_logging(verbose: bool = False) -> None:
         handlers=handlers,
         force=True,
     )
+
+    # A missing console is not the same as a silent one: writes to None raise
+    # AttributeError instead of going nowhere, and that is exactly how
+    # huggingface_hub's progress bar killed every model download from the
+    # packaged app (see config.py). Handing the absent streams a sink stops the
+    # next library that prints something from doing the same. Deliberately
+    # after the handler list above, so a real console still gets log lines and
+    # a fake one never collects them.
+    if sys.stdout is None or sys.stderr is None:
+        sink = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115 - lives as long as the process
+        if sys.stdout is None:
+            sys.stdout = sink
+        if sys.stderr is None:
+            sys.stderr = sink
 
     # Catch otherwise-invisible crashes (windowed .exe has no console): both
     # the main thread and worker threads.

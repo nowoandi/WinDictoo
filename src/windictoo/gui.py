@@ -19,7 +19,7 @@ from .app import Dictation, State
 from .audio import input_devices
 from .config import CONFIG_DIR, LOG_PATH, Config
 from .hotkey import describe
-from .transcribe import Transcriber
+from .transcribe import ModelNotDownloaded, Transcriber
 from .widgets import Equalizer, MicIndicator, aa_image
 
 log = logging.getLogger(__name__)
@@ -994,7 +994,7 @@ class WinDictooGUI:
                                button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
                                command=lambda v: self._set_model(v))
         om.pack(fill="x", padx=14, pady=(2, 6))
-        self.model_status = ctk.CTkLabel(c1, text=self._model_hint(current),
+        self.model_status = ctk.CTkLabel(c1, text=self._model_state(current),
                                          font=_font(11), text_color=theme.MUTED, wraplength=460,
                                          justify="left")
         self.model_status.pack(anchor="w", padx=14)
@@ -1243,6 +1243,18 @@ class WinDictooGUI:
             return i18n.t("rec.model_fixed_language", language=name)
         return i18n.t("rec.model_detects_language")
 
+    def _model_state(self, spec: engine.ModelSpec) -> str:
+        """The line under the picker: what this model does about language, or —
+        ahead of that — that it is not actually on disk yet.
+
+        A download that never finished leaves the model folder behind, so the
+        model reads as installed everywhere else. This is the one place that
+        says otherwise before the user waits on a dictation that cannot come.
+        """
+        if not engine.is_on_disk(spec):
+            return i18n.t("rec.model_missing", model=spec.title, size=spec.size_mb)
+        return self._model_hint(spec)
+
     def _set_model(self, label: str) -> None:
         spec = engine.spec(self._model_ids[label])
         self.cfg.model = spec.id
@@ -1256,6 +1268,7 @@ class WinDictooGUI:
         self.dictation.transcriber = Transcriber(self.cfg)
         self._refresh_chips()
         self._lang_note.configure(text=self._model_hint(spec))
+        self._model_status_text(self._model_state(spec))
         # Start fetching it, while the user is still looking at Settings —
         # otherwise the first dictation after a switch pays the whole download,
         # minutes of it, with the app apparently frozen mid-sentence.
@@ -1352,6 +1365,10 @@ class WinDictooGUI:
             try:
                 self.dictation.transcriber.load()
                 msg = i18n.t("common.model_loaded")
+            except ModelNotDownloaded as exc:
+                log.exception("model load failed")
+                msg = i18n.t("rec.model_download_failed",
+                             model=exc.spec.title, size=exc.spec.size_mb)
             except Exception as exc:  # noqa: BLE001
                 log.exception("model load failed")
                 msg = i18n.t("common.error_with", error=exc)
@@ -1733,6 +1750,10 @@ class WinDictooGUI:
             try:
                 self.dictation.transcriber.load()
                 msg = i18n.t("common.model_loaded")
+            except ModelNotDownloaded as exc:
+                log.exception("model preload failed")
+                msg = i18n.t("rec.model_download_failed",
+                             model=exc.spec.title, size=exc.spec.size_mb)
             except Exception as exc:  # noqa: BLE001
                 log.exception("model preload failed")
                 msg = i18n.t("preload.failed", error=exc)

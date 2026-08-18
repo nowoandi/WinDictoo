@@ -267,6 +267,140 @@ def test_sample_rate_is_cached_per_device():
     assert attempts == [48000], f"cached rate should be used directly, got {attempts}"
 
 
+def test_silent_device_is_dropped_from_the_fallback_chain():
+    """An input that opens cleanly and then hands over nothing but zeros — a line
+    input with an empty socket being the usual culprit — used to be chosen again
+    on every hold, so dictation stayed dead for a whole session while the log
+    filled up with "rejected as silent". The existing fallback cannot catch it,
+    because the open succeeds; after SILENT_STRIKES such holds the device has to
+    be skipped and the next candidate opened instead. One silent hold must not be
+    enough, since a hardware mute switch reads exactly the same. Both microphone
+    modes are checked: "on_demand" closes the stream earlier inside stop(), which
+    is easy to break by gating the decision on a still-open stream.
+    """
+    import time
+
+    from windictoo import audio
+
+    class FakeStream:
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    def check(mode):
+        rec = audio.Recorder(
+            Config(input_device_index=27, mic_mode=mode, preroll_ms=0, tail_ms=0)
+        )
+        opened: list[int | None] = []
+
+        def fake_make(device, rate):
+            opened.append(device)
+            return FakeStream()
+
+        rec._make_stream = fake_make
+
+        def silent_hold():
+            rec.ensure_stream()
+            # Stand in for the PortAudio callback handing over a silent block.
+            with rec._lock:
+                rec.is_recording = True
+                rec._chunks = [np.zeros(audio.SAMPLE_RATE, dtype=np.float32)]
+            rec._hold_started = time.monotonic() - 1.0
+            with pytest.raises(audio.EmptyRecording):
+                rec.stop()
+
+        silent_hold()
+        assert 27 not in rec._silent_devices, (
+            f"[{mode}] one silent hold must not condemn a device"
+        )
+        silent_hold()
+        assert 27 in rec._silent_devices, (
+            f"[{mode}] an input silent {audio.SILENT_STRIKES} holds running must be dropped"
+        )
+
+        rec.ensure_stream()
+        assert opened[-1] != 27, (
+            f"[{mode}] should have moved off the silent input, opened {opened}"
+        )
+
+    check("lazy")
+    check("on_demand")
+
+
+def test_is_on_disk_rejects_a_metadata_only_cache(tmp_path, monkeypatch):
+    """A download that crashed leaves "refs" and "trees" behind and no snapshot.
+    The model folder then exists, so the model read as installed everywhere —
+    and picking it failed with whatever broke deepest inside the loader instead
+    of with "it is not downloaded". Parakeet sat in exactly this state while
+    looking present, which is what this check exists to catch.
+    """
+    import os
+
+    from windictoo import engine
+
+    model = engine.spec("gigaam-v3-ru")
+    root = tmp_path / "onnx"
+    monkeypatch.setattr(engine, "ONNX_MODELS_DIR", root)
+    directory = root / ("models--" + model.hf_repo.replace("/", "--"))
+    sha = "322c3b29492673eb7d0b434bfa9dfb8653e34d02"
+
+    assert engine.is_on_disk(model) is False, "nothing on disk at all"
+
+    # Metadata only: exactly the state a crashed download leaves.
+    (directory / "refs").mkdir(parents=True)
+    (directory / "refs" / "main").write_text(sha, encoding="utf-8")
+    (directory / "trees").mkdir()
+    (directory / "trees" / f"{sha}.json").write_text("{}", encoding="utf-8")
+    assert engine.is_on_disk(model) is False, "refs+trees is not a model"
+    assert engine.bytes_on_disk(model) > 0, (
+        "the stub does occupy bytes - which is why size alone cannot decide"
+    )
+
+    # A snapshot holding only the small files is still a partial download.
+    snapshot = directory / "snapshots" / sha
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "v3_e2e_rnnt_vocab.txt").write_text("a" * 13354, encoding="utf-8")
+    assert engine.is_on_disk(model) is False, "config and vocabulary are not weights"
+
+    # Now the weights. Sparse, so the test does not write 150 MB.
+    weights = snapshot / "v3_e2e_rnnt_encoder.int8.onnx"
+    weights.write_bytes(b"")
+    os.truncate(weights, 150 * 1024 * 1024)
+    assert engine.is_on_disk(model) is True, "weights present, model is usable"
+
+
+def test_missing_model_is_reported_as_missing_not_as_a_loader_crash(monkeypatch):
+    """The backends report a model absent from the cache as whatever failed
+    deepest inside huggingface_hub — an AttributeError from a progress bar, in
+    the case that prompted this — and the interface showed that verbatim. A
+    model that *is* on disk must still surface its original error, because then
+    the fault is real and hiding it would be worse.
+    """
+    from windictoo import engine, transcribe
+
+    class Boom:
+        def load(self):
+            raise AttributeError("'NoneType' object has no attribute 'write'")
+
+    monkeypatch.setattr(engine, "make", lambda cfg, spec: Boom())
+
+    monkeypatch.setattr(engine, "is_on_disk", lambda spec: False)
+    with pytest.raises(transcribe.ModelNotDownloaded) as caught:
+        transcribe.Transcriber(Config(model="gigaam-v3-ru")).load()
+    assert caught.value.spec.id == "gigaam-v3-ru"
+    assert "GigaAM" in str(caught.value)
+
+    monkeypatch.setattr(engine, "is_on_disk", lambda spec: True)
+    with pytest.raises(AttributeError):
+        transcribe.Transcriber(Config(model="gigaam-v3-ru")).load()
+
+
 def test_split_uninstall_command():
     from windictoo import oldversions
 
