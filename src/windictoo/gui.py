@@ -244,12 +244,22 @@ class WinDictooGUI:
         # Accent-tinted label where that stays legible on CARD_HI, plain TEXT
         # where it doesn't (the dark palette's accent measured only 2.40:1).
         chip_text = theme.readable_on(theme.CARD_HI, theme.ACCENT_HOVER, theme.ACCENT, theme.TEXT)
+        # One-press clear. Copying the transcript leaves the caret in the box,
+        # and dictating again replaces the text anyway — but *typing* the next
+        # note meant selecting everything by hand first. Only shown when the
+        # box holds real text: over the placeholder there is nothing to clear.
+        self.clear_btn = ctk.CTkButton(rhead, text="✕", width=28, height=28,
+                                       corner_radius=theme.RADIUS_WIDGET, font=_font(12, "bold"),
+                                       fg_color=theme.CARD_HI, hover_color=theme.STROKE,
+                                       text_color=chip_text, border_width=1,
+                                       border_color=theme.STROKE, command=self._clear_result)
+        self.clear_btn.pack(side="right")
         self.copy_btn = ctk.CTkButton(rhead, text=i18n.t("common.copy"), width=110, height=28,
                                       corner_radius=theme.RADIUS_WIDGET, font=_font(11, "bold"),
                                       fg_color=theme.CARD_HI, hover_color=theme.STROKE,
                                       text_color=chip_text, border_width=1,
                                       border_color=theme.STROKE, command=self._copy_result)
-        self.copy_btn.pack(side="right")
+        self.copy_btn.pack(side="right", padx=(0, 8))
         # Quick recognition-language switch, right next to Copy — dictation
         # language is changed often enough (mid-session, multilingual users)
         # that burying it in Settings -> Распознавание was too many clicks.
@@ -272,6 +282,9 @@ class WinDictooGUI:
         self.result_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self.result_box.bind("<FocusIn>", self._result_focus_in)
         self.result_box.bind("<FocusOut>", self._result_focus_out)
+        # Typing into or out of an empty box changes whether there is anything
+        # to clear, and only the widget itself knows when that happened.
+        self.result_box.bind("<KeyRelease>", lambda _e: self._update_clear_btn())
         self._show_placeholder()
 
     def _chip(self, parent, text: str, expand: bool = False, last: bool = False) -> ctk.CTkLabel:
@@ -435,6 +448,7 @@ class WinDictooGUI:
         self.result_box.configure(text_color=theme.MUTED)
         self._result_is_placeholder = True
         self.result_box.edit_reset()
+        self._update_clear_btn()
 
     def _clear_placeholder(self) -> None:
         if not getattr(self, "_result_is_placeholder", False):
@@ -443,6 +457,55 @@ class WinDictooGUI:
         self.result_box.configure(text_color=theme.TEXT)
         self._result_is_placeholder = False
         self.result_box.edit_reset()
+
+    def _has_result_text(self) -> bool:
+        """True when the box holds a transcript rather than the hint."""
+        if getattr(self, "_result_is_placeholder", True):
+            return False
+        try:
+            return bool(self.result_box.get("1.0", "end").strip())
+        except tk.TclError:
+            return False
+
+    def _update_clear_btn(self) -> None:
+        """Show the clear button only when there is something to clear.
+
+        Re-packed `before` Copy rather than plain pack(): pack order decides
+        which side="right" widget gets the outermost slot, so a bare pack()
+        after a hide would drop it on the wrong side of Copy.
+
+        Visibility is read from winfo_manager(), not winfo_ismapped(): nothing
+        is mapped yet while the window is still being built, so the first call —
+        the one from _show_placeholder() during construction — would have seen
+        "not shown", skipped the hide, and left the button sitting over the
+        hint until the first keystroke.
+        """
+        btn = getattr(self, "clear_btn", None)
+        if not self._alive(btn):
+            return
+        try:
+            packed = bool(btn.winfo_manager())
+            if self._has_result_text():
+                if not packed:
+                    btn.pack(side="right", before=self.copy_btn)
+            elif packed:
+                btn.pack_forget()
+        except tk.TclError:
+            pass
+
+    def _clear_result(self) -> None:
+        """Empty the box in one press and leave the caret ready for the next one.
+
+        The hint is deliberately *not* restored here: it would sit in a focused
+        box and the next keystroke would append to it. _result_focus_out puts it
+        back once the user clicks away, which is exactly the existing rule.
+        """
+        self.result_box.delete("1.0", "end")
+        self.result_box.configure(text_color=theme.TEXT)
+        self._result_is_placeholder = False
+        self.result_box.edit_reset()  # clearing is not an edit to undo into
+        self.result_box.focus_set()
+        self._update_clear_btn()
 
     def _result_focus_in(self, _event=None) -> None:
         self._clear_placeholder()
@@ -462,6 +525,7 @@ class WinDictooGUI:
         self.result_box.configure(text_color=theme.TEXT)
         self._result_is_placeholder = False
         self.result_box.edit_reset()  # a fresh dictation isn't an "undo" of the last edit
+        self._update_clear_btn()
 
     def _copy_result(self) -> None:
         if getattr(self, "_result_is_placeholder", False):
