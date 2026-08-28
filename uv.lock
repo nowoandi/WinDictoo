@@ -884,7 +884,7 @@ wheels = [
 
 [[package]]
 name = "windictoo"
-version = "1.8.6"
+version = "1.8.7"
 source = { editable = "." }
 dependencies = [
     { name = "customtkinter" },

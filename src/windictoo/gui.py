@@ -90,6 +90,8 @@ class WinDictooGUI:
         self._model_pump_running = False
         # Pending debounced model load; see _set_model.
         self._model_load_after: str | None = None
+        # Debounced save for the microphone hold-open slider (see _set_mic_idle).
+        self._mic_idle_save: str | None = None
 
         theme.apply(cfg.ui_theme)
         i18n.set_language(cfg.ui_language)
@@ -1052,9 +1054,30 @@ class WinDictooGUI:
             lambda v: self._set_mic_mode(next(m for lbl, m in mic_modes if lbl == v)),
         ).pack(fill="x", padx=14, pady=(2, 4))
         self._mic_mode_hint = ctk.CTkLabel(
-            c_mic, text=i18n.t(f"gen.mic_mode_hint_{self.cfg.mic_mode}"),
+            c_mic, text=i18n.t(f"gen.mic_mode_hint_{self.cfg.mic_mode}",
+                               seconds=int(self.cfg.mic_idle_close_sec)),
             font=_font(11), text_color=theme.MUTED, wraplength=460, justify="left")
-        self._mic_mode_hint.pack(anchor="w", padx=14, pady=(0, 12))
+        self._mic_mode_hint.pack(anchor="w", padx=14, pady=(0, 8))
+
+        # How long that lingering actually lasts. Worth a control of its own
+        # rather than a constant: while the stream is open a Bluetooth headset
+        # is held in its narrowband call profile, so anything recording the
+        # machine captures that instead of the stereo one - half a minute of it
+        # after every single dictation, at the old fixed value.
+        self._mic_idle_label = ctk.CTkLabel(
+            c_mic, text=i18n.t("gen.mic_idle_label", seconds=int(self.cfg.mic_idle_close_sec)),
+            font=_font(12), text_color=theme.TEXT)
+        self._mic_idle_label.pack(anchor="w", padx=14)
+        self._mic_idle_slider = ctk.CTkSlider(
+            c_mic, from_=1, to=60, number_of_steps=59, fg_color=theme.CARD_HI,
+            progress_color=theme.ACCENT, button_color=theme.ACCENT,
+            button_hover_color=theme.ACCENT_HOVER, command=self._set_mic_idle)
+        self._mic_idle_slider.set(max(1, min(60, int(self.cfg.mic_idle_close_sec))))
+        self._mic_idle_slider.pack(fill="x", padx=14, pady=(2, 4))
+        ctk.CTkLabel(c_mic, text=i18n.t("gen.mic_idle_hint"), font=_font(11),
+                     text_color=theme.MUTED, wraplength=460, justify="left").pack(
+            anchor="w", padx=14, pady=(0, 12))
+        self._sync_mic_idle_state()
 
         # Theme swatch and UI language share one row: six stacked cards no
         # longer fit the window and pushed the autostart card out of view.
@@ -1311,10 +1334,44 @@ class WinDictooGUI:
         self.dictation.recorder.release()
         self.dictation.warm_up()
 
+    def _set_mic_idle(self, seconds: float) -> None:
+        """Live feedback from the hold-open slider; the save waits a moment.
+
+        Dragging fires this once per step and every save is a file write, so the
+        value lands in the config straight away - the recorder reads it from
+        there on the next release - while the write itself is debounced.
+        """
+        value = max(1, int(round(seconds)))
+        self.cfg.mic_idle_close_sec = value
+        if self._alive(getattr(self, "_mic_idle_label", None)):
+            self._mic_idle_label.configure(text=i18n.t("gen.mic_idle_label", seconds=value))
+        if self._alive(getattr(self, "_mic_mode_hint", None)):
+            self._mic_mode_hint.configure(
+                text=i18n.t(f"gen.mic_mode_hint_{self.cfg.mic_mode}", seconds=value))
+        if self._mic_idle_save is not None:
+            try:
+                self.root.after_cancel(self._mic_idle_save)
+            except (ValueError, tk.TclError):
+                pass
+        self._mic_idle_save = self.root.after(400, self.cfg.save)
+
+    def _sync_mic_idle_state(self) -> None:
+        """The hold-open time only means anything in the lingering mode:
+        "always" never closes the stream and "on_demand" closes it at once."""
+        slider = getattr(self, "_mic_idle_slider", None)
+        if not self._alive(slider):
+            return
+        lazy = self.cfg.mic_mode == "lazy"
+        slider.configure(state="normal" if lazy else "disabled")
+        if self._alive(getattr(self, "_mic_idle_label", None)):
+            self._mic_idle_label.configure(text_color=theme.TEXT if lazy else theme.MUTED)
+
     def _set_mic_mode(self, mode: str) -> None:
         self.cfg.mic_mode = mode
         self.cfg.save()
-        self._mic_mode_hint.configure(text=i18n.t(f"gen.mic_mode_hint_{mode}"))
+        self._mic_mode_hint.configure(
+            text=i18n.t(f"gen.mic_mode_hint_{mode}", seconds=int(self.cfg.mic_idle_close_sec)))
+        self._sync_mic_idle_state()
         if mode == "always":
             self.dictation.warm_up()
         else:
