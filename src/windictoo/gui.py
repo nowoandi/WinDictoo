@@ -16,7 +16,6 @@ import customtkinter as ctk
 
 from . import autostart, engine, i18n, insert as _insert, oldversions, refine, theme, update
 from .app import Dictation, State
-from .audio import input_devices
 from .config import CONFIG_DIR, LOG_PATH, Config
 from .hotkey import describe
 from .transcribe import ModelNotDownloaded, Transcriber
@@ -1022,9 +1021,8 @@ class WinDictooGUI:
         c_mic = self._card(tab, i18n.t("gen.card_mic"))
         # Opening Settings is when someone looks for the headset they have just
         # switched on, and the list would otherwise still be the one PortAudio
-        # made at startup. Skipped while a stream is open; see reread_devices.
-        self.dictation.recorder.reread_devices()
-        devices = input_devices()
+        # made at startup.
+        devices = self.dictation.recorder.list_input_devices()
         mic_default = i18n.t("gen.mic_default")
         mic_labels = [mic_default] + [name for _, name in devices]
         current_label = next(

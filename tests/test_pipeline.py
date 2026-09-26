@@ -462,13 +462,12 @@ def test_a_silent_device_stops_being_pinned_in_the_settings(monkeypatch):
     assert saved == [None], "the change has to survive the restart"
 
 
-def test_a_device_list_frozen_at_startup_is_reread_before_giving_up(monkeypatch):
+def test_a_device_list_frozen_at_startup_is_reread_before_opening(monkeypatch):
     """PortAudio lists devices once, at start-up. WinDictoo autostarts with
     Windows, before the headset is switched on, so on 26.09.2026 the headset did
     not exist for the process and every dictation failed with "Error querying
     device -1" - while Windows' own dictation used the same headset happily.
-    A failed open must re-read the device list and try again before giving up,
-    and forget everything it had keyed by the old device numbers.
+    Every fresh open has to start from a freshly read device list.
     """
     from windictoo import audio
 
@@ -496,16 +495,37 @@ def test_a_device_list_frozen_at_startup_is_reread_before_giving_up(monkeypatch)
     monkeypatch.setattr(audio, "_reread_devices", reread)
     rec = audio.Recorder(Config(mic_mode="on_demand"))
     rec._make_stream = make
-    rec._rate_cache[5] = 44100
-    rec._silent_devices.add(5)
 
     rec.ensure_stream()
 
-    assert state["rereads"] == 1, "exactly one re-read, then success"
+    assert state["rereads"] == 1, "the list is re-read once, before opening"
     assert rec._stream is not None
-    assert 5 not in rec._rate_cache and 5 not in rec._silent_devices, (
-        "a re-read may renumber devices; nothing keyed by the old numbers may survive"
-    )
+
+
+def test_per_device_state_survives_a_reread_unless_the_list_changed(monkeypatch):
+    """A re-read happens before every fresh open, and mic_mode "on_demand"
+    reopens for every hold - so clearing per-device state on each re-read would
+    stop the silent-device count from ever reaching SILENT_STRIKES. It may only
+    go when the list changed, since only then can a number mean another device.
+    """
+    from windictoo import audio
+
+    monkeypatch.setattr(audio, "_reread_devices", lambda: None)
+    rec = audio.Recorder()
+    rec._rate_cache[5] = 44100
+    rec._silent_devices.add(5)
+    rec._silent_runs[5] = 1
+
+    signatures = iter([("same",), ("same",)])
+    monkeypatch.setattr(audio, "_device_signature", lambda: next(signatures))
+    rec._refresh_device_list()
+    assert rec._rate_cache == {5: 44100} and 5 in rec._silent_devices
+    assert rec._silent_runs == {5: 1}
+
+    signatures = iter([("before",), ("after",)])
+    monkeypatch.setattr(audio, "_device_signature", lambda: next(signatures))
+    rec._refresh_device_list()
+    assert not rec._rate_cache and not rec._silent_devices and not rec._silent_runs
 
 
 def test_no_capture_device_at_all_is_reported_by_name(monkeypatch):
@@ -529,7 +549,7 @@ def test_no_capture_device_at_all_is_reported_by_name(monkeypatch):
         rec.ensure_stream()
 
 
-def test_reread_devices_leaves_an_open_stream_alone(monkeypatch):
+def test_settings_list_leaves_an_open_stream_alone(monkeypatch):
     """Re-initialising PortAudio closes every stream it has, so the Settings
     window may refresh the list only while the recorder holds none."""
     from windictoo import audio
@@ -538,9 +558,11 @@ def test_reread_devices_leaves_an_open_stream_alone(monkeypatch):
     monkeypatch.setattr(audio, "_reread_devices", lambda: calls.append(1))
     rec = audio.Recorder()
     rec._stream = object()  # stands in for an open stream
-    assert rec.reread_devices() is False and calls == []
+    rec.list_input_devices()
+    assert calls == [], "an open stream must not be torn down by a re-read"
     rec._stream = None
-    assert rec.reread_devices() is True and calls == [1]
+    rec.list_input_devices()
+    assert calls == [1]
 
 
 def test_no_microphone_is_told_to_the_user_in_words(monkeypatch):

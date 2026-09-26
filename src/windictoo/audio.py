@@ -70,6 +70,13 @@ def _reread_devices() -> None:
     sd._initialize()
 
 
+def _device_signature() -> tuple:
+    """What the device numbers currently mean: the whole list, entry by entry.
+    Two equal signatures number every device the same way."""
+    return tuple((d["name"], d["hostapi"], d["max_input_channels"])
+                 for d in sd.query_devices())
+
+
 class EmptyRecording(Exception):
     """Recording was too short or effectively silent.
 
@@ -274,15 +281,14 @@ class Recorder:
                          self._open_device, device)
                 self._close_stream()
 
-            failure = self._open_first(device)
-            if failure is None:
-                return
-            # The device list may just be out of date - see _reread_devices. No
-            # stream is open at this point, so refreshing is safe; one retry.
-            log.warning("no input device could be opened (%s); re-reading the device list",
-                        failure)
-            self._forget_device_indices()
-            _reread_devices()
+            # Every fresh open starts from a fresh device list - see
+            # _reread_devices. Re-reading only after an open *failed* was not
+            # enough: with a microphone already present at start-up, Windows
+            # moving its default to a headset switched on later makes nothing
+            # fail, and the old microphone would go on being opened. A re-read
+            # took 26 ms where it was measured (26.09.2026), far below anything
+            # audible. No stream is open at this point, so it is safe.
+            self._refresh_device_list()
             failure = self._open_first(device)
             if failure is None:
                 return
@@ -297,18 +303,33 @@ class Recorder:
         self._silent_devices.clear()
         self._silent_runs.clear()
 
-    def reread_devices(self) -> bool:
-        """Refresh PortAudio's device list if that is safe right now.
+    def _refresh_device_list(self) -> None:
+        """Re-read PortAudio's device list, keeping per-device state when the
+        numbering has not changed.
 
-        Safe means no stream is open, since re-initialising PortAudio closes
-        every stream it has. Returns whether the list was actually re-read.
+        Clearing it on every re-read would break the silent-device count: it
+        has to survive reopening (mic_mode "on_demand" reopens for every hold)
+        or it could never reach SILENT_STRIKES. It only goes stale when the
+        list itself changes, because only then can a number start meaning a
+        different microphone.
+        """
+        before = _device_signature()
+        _reread_devices()
+        if _device_signature() != before:
+            log.info("audio device list changed; forgetting per-device state")
+            self._forget_device_indices()
+
+    def list_input_devices(self) -> list[tuple[int, str]]:
+        """The inputs for a device picker, listed afresh when that is safe.
+
+        A re-read re-initialises PortAudio, which closes every stream, so it is
+        skipped while one is open. Held under the stream lock so a dictation
+        starting at the same moment cannot re-read the list under our feet.
         """
         with self._stream_lock:
-            if self._stream is not None:
-                return False
-            self._forget_device_indices()
-            _reread_devices()
-            return True
+            if self._stream is None:
+                self._refresh_device_list()
+            return input_devices()
 
     def _open_first(self, device: int | None) -> Exception | None:
         """Walk the fallback chain and open the first device that works.
