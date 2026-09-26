@@ -46,6 +46,30 @@ MIN_PEAK = 0.005
 SILENT_STRIKES = 2
 
 
+class NoInputDevice(RuntimeError):
+    """Not a single capture device exists, even after re-reading the list.
+
+    Kept apart from a device that exists but refuses to open: this one has a
+    plain answer the user can act on - plug something in - while the raw
+    PortAudio text ("Error querying device -1") tells them nothing.
+    """
+
+
+def _reread_devices() -> None:
+    """Make PortAudio enumerate the audio devices again.
+
+    PortAudio lists devices once, when it initialises, and never looks again.
+    WinDictoo autostarts with Windows, usually before the headset is switched
+    on, so on 26.09.2026 the headset simply did not exist for this process:
+    every dictation failed with "Error querying device -1" while the built-in
+    Windows dictation, which asks the system afresh, used the same headset
+    without trouble. Terminating and re-initialising is the only refresh
+    PortAudio offers, and it closes every open stream - callers must hold none.
+    """
+    sd._terminate()
+    sd._initialize()
+
+
 class EmptyRecording(Exception):
     """Recording was too short or effectively silent.
 
@@ -250,6 +274,48 @@ class Recorder:
                          self._open_device, device)
                 self._close_stream()
 
+            failure = self._open_first(device)
+            if failure is None:
+                return
+            # The device list may just be out of date - see _reread_devices. No
+            # stream is open at this point, so refreshing is safe; one retry.
+            log.warning("no input device could be opened (%s); re-reading the device list",
+                        failure)
+            self._forget_device_indices()
+            _reread_devices()
+            failure = self._open_first(device)
+            if failure is None:
+                return
+            if not any(d["max_input_channels"] > 0 for d in sd.query_devices()):
+                raise NoInputDevice("no capture device is connected") from failure
+            raise failure
+
+    def _forget_device_indices(self) -> None:
+        """Drop everything keyed by a device index: after a re-read of the
+        device list the same number can mean a different microphone."""
+        self._rate_cache.clear()
+        self._silent_devices.clear()
+        self._silent_runs.clear()
+
+    def reread_devices(self) -> bool:
+        """Refresh PortAudio's device list if that is safe right now.
+
+        Safe means no stream is open, since re-initialising PortAudio closes
+        every stream it has. Returns whether the list was actually re-read.
+        """
+        with self._stream_lock:
+            if self._stream is not None:
+                return False
+            self._forget_device_indices()
+            _reread_devices()
+            return True
+
+    def _open_first(self, device: int | None) -> Exception | None:
+        """Walk the fallback chain and open the first device that works.
+
+        Returns None once a stream is open, otherwise the last failure.
+        """
+        with self._stream_lock:
             # Fallback chain: the user's chosen device, then WASAPI's own
             # default, then whatever PortAudio itself considers default — each
             # a little less specific, so a disconnected/renumbered device never
@@ -285,8 +351,8 @@ class Recorder:
                     self._ring.clear()
                     self._ring_samples = 0
                 log.info("microphone open (device=%s, rate=%d)", dev, rate)
-                return
-            raise last_exc if last_exc is not None else RuntimeError("no input device")
+                return None
+            return last_exc if last_exc is not None else RuntimeError("no input device")
 
     def _close_stream(self) -> None:
         with self._stream_lock:

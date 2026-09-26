@@ -1020,6 +1020,10 @@ class WinDictooGUI:
         method.pack(fill="x", padx=14, pady=(2, 12))
 
         c_mic = self._card(tab, i18n.t("gen.card_mic"))
+        # Opening Settings is when someone looks for the headset they have just
+        # switched on, and the list would otherwise still be the one PortAudio
+        # made at startup. Skipped while a stream is open; see reread_devices.
+        self.dictation.recorder.reread_devices()
         devices = input_devices()
         mic_default = i18n.t("gen.mic_default")
         mic_labels = [mic_default] + [name for _, name in devices]

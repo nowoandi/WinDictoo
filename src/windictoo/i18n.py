@@ -1052,6 +1052,16 @@ STRINGS: dict[str, dict[str, str]] = {
     },
 
     # -------------------------------------------------------------- app messages
+    "app.no_microphone": {
+        "ru": "Микрофон не найден. Подключите гарнитуру или микрофон и нажмите снова.",
+        "en": "No microphone found. Connect a headset or microphone and press again.",
+        "de": "Kein Mikrofon gefunden. Schließen Sie ein Headset oder Mikrofon an und drücken Sie erneut.",
+        "fr": "Aucun microphone trouvé. Branchez un casque ou un micro et appuyez à nouveau.",
+        "es": "No se encontró ningún micrófono. Conecta unos auriculares o un micrófono y pulsa de nuevo.",
+        "zh": "未找到麦克风。请连接耳机或麦克风后再按一次。",
+        "tr": "Mikrofon bulunamadı. Bir kulaklık veya mikrofon bağlayıp tekrar basın.",
+        "hy": "Խոսափող չի գտնվել։ Միացրեք ականջակալ կամ խոսափող և նորից սեղմեք։",
+    },
     "app.mic_unavailable": {
         "ru": "Микрофон недоступен: {error}", "en": "Microphone unavailable: {error}",
         "de": "Mikrofon nicht verfügbar: {error}", "fr": "Microphone indisponible : {error}",

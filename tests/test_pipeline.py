@@ -462,6 +462,105 @@ def test_a_silent_device_stops_being_pinned_in_the_settings(monkeypatch):
     assert saved == [None], "the change has to survive the restart"
 
 
+def test_a_device_list_frozen_at_startup_is_reread_before_giving_up(monkeypatch):
+    """PortAudio lists devices once, at start-up. WinDictoo autostarts with
+    Windows, before the headset is switched on, so on 26.09.2026 the headset did
+    not exist for the process and every dictation failed with "Error querying
+    device -1" - while Windows' own dictation used the same headset happily.
+    A failed open must re-read the device list and try again before giving up,
+    and forget everything it had keyed by the old device numbers.
+    """
+    from windictoo import audio
+
+    class FakeStream:
+        def start(self):
+            pass
+
+        def stop(self):
+            pass
+
+        def close(self):
+            pass
+
+    state = {"fresh": False, "rereads": 0}
+
+    def reread():
+        state["fresh"] = True
+        state["rereads"] += 1
+
+    def make(device, rate):
+        if not state["fresh"]:
+            raise RuntimeError("Error querying device -1")
+        return FakeStream()
+
+    monkeypatch.setattr(audio, "_reread_devices", reread)
+    rec = audio.Recorder(Config(mic_mode="on_demand"))
+    rec._make_stream = make
+    rec._rate_cache[5] = 44100
+    rec._silent_devices.add(5)
+
+    rec.ensure_stream()
+
+    assert state["rereads"] == 1, "exactly one re-read, then success"
+    assert rec._stream is not None
+    assert 5 not in rec._rate_cache and 5 not in rec._silent_devices, (
+        "a re-read may renumber devices; nothing keyed by the old numbers may survive"
+    )
+
+
+def test_no_capture_device_at_all_is_reported_by_name(monkeypatch):
+    """With nothing connected, the user used to read "Error querying device -1".
+    When even a fresh device list holds no input, the failure has to say so."""
+    from windictoo import audio
+
+    def make(device, rate):
+        raise RuntimeError("Error querying device -1")
+
+    def query_devices(*args, **kwargs):
+        # No argument: the whole list, which is empty. With one: a device's
+        # details, asked for while probing its native sample rate.
+        return [] if not args else {"default_samplerate": 48000}
+
+    monkeypatch.setattr(audio, "_reread_devices", lambda: None)
+    monkeypatch.setattr(audio.sd, "query_devices", query_devices)
+    rec = audio.Recorder(Config(mic_mode="on_demand"))
+    rec._make_stream = make
+    with pytest.raises(audio.NoInputDevice):
+        rec.ensure_stream()
+
+
+def test_reread_devices_leaves_an_open_stream_alone(monkeypatch):
+    """Re-initialising PortAudio closes every stream it has, so the Settings
+    window may refresh the list only while the recorder holds none."""
+    from windictoo import audio
+
+    calls = []
+    monkeypatch.setattr(audio, "_reread_devices", lambda: calls.append(1))
+    rec = audio.Recorder()
+    rec._stream = object()  # stands in for an open stream
+    assert rec.reread_devices() is False and calls == []
+    rec._stream = None
+    assert rec.reread_devices() is True and calls == [1]
+
+
+def test_no_microphone_is_told_to_the_user_in_words(monkeypatch):
+    from windictoo import app, audio, engine
+
+    monkeypatch.setattr(engine, "make", lambda cfg, spec: object())
+    dictation = app.Dictation(Config())
+
+    def no_device(*args, **kwargs):
+        raise audio.NoInputDevice("no capture device is connected")
+
+    dictation.recorder.start = no_device
+    monkeypatch.setattr(dictation, "_reset_later", lambda: None)
+    dictation.start()
+
+    assert dictation.state is app.State.ERROR
+    assert dictation.message == i18n.t("app.no_microphone")
+    assert "-1" not in dictation.message
+
+
 def test_split_uninstall_command():
     from windictoo import oldversions
 

@@ -8,7 +8,7 @@ import threading
 from collections.abc import Callable
 
 from . import i18n, insert, refine
-from .audio import EmptyRecording, Recorder
+from .audio import EmptyRecording, NoInputDevice, Recorder
 from .config import Config
 from .transcribe import Transcriber
 
@@ -102,6 +102,10 @@ class Dictation:
             self._set_state(State.RECORDING)
         try:
             self.recorder.start()
+        except NoInputDevice:
+            log.warning("no microphone is connected")
+            self._set_state(State.ERROR, i18n.t("app.no_microphone"))
+            self._reset_later()
         except Exception as exc:  # noqa: BLE001
             log.exception("could not start recording")
             self._set_state(State.ERROR, i18n.t("app.mic_unavailable", error=exc))
