@@ -173,6 +173,11 @@ class Recorder:
         # that was *asked* for (the config value, used to spot a user swap),
         # which after a fallback is not the one carrying the audio.
         self._active_device: int | None = None
+        # The index the microphone chosen in the settings resolved to on the
+        # last open; None when none is chosen, it is not connected, or a caller
+        # asked for an explicit index. Lets the owner of the settings tell a
+        # retirement of the chosen microphone from one of a fallback.
+        self._pinned_index: int | None = None
         # Called with the retired device when one is caught delivering nothing
         # but silence, so whoever owns the settings can stop pinning it. A hook
         # rather than a config write of our own on purpose: the onboarding
@@ -266,19 +271,22 @@ class Recorder:
     def ensure_stream(self, device: int | None = None) -> None:
         """Open the capture stream if it isn't already running.
 
+        `device` is an index a caller wants explicitly; None means the
+        microphone chosen in the settings, looked up by name, or the default.
         Called on the hotkey, and at startup when Config.mic_mode is "always".
         Raises if no device could be opened at all.
         """
-        if device is None:
-            device = self.cfg.input_device_index
         with self._stream_lock:
             self._cancel_release_timer()
+            # What is asked for, in the form that keeps its meaning across a
+            # re-read of the device list: the explicit index, or the name.
+            wanted: object = device if device is not None else self.cfg.input_device_name
             if self._stream is not None:
-                if device == self._open_device:
+                if wanted == self._open_device:
                     return
                 # The user picked a different microphone; swap to it.
                 log.info("input device changed (%s -> %s), reopening",
-                         self._open_device, device)
+                         self._open_device, wanted)
                 self._close_stream()
 
             # Every fresh open starts from a fresh device list - see
@@ -289,8 +297,16 @@ class Recorder:
             # took 26 ms where it was measured (26.09.2026), far below anything
             # audible. No stream is open at this point, so it is safe.
             self._refresh_device_list()
+            # Resolved only now, against the list just read: yesterday's index
+            # for this name may already belong to another device.
+            if device is None:
+                device = _resolve_input_name(self.cfg.input_device_name)
+                self._pinned_index = device
+            else:
+                self._pinned_index = None
             failure = self._open_first(device)
             if failure is None:
+                self._open_device = wanted
                 return
             if not any(d["max_input_channels"] > 0 for d in sd.query_devices()):
                 raise NoInputDevice("no capture device is connected") from failure
@@ -318,6 +334,11 @@ class Recorder:
         if _device_signature() != before:
             log.info("audio device list changed; forgetting per-device state")
             self._forget_device_indices()
+
+    @property
+    def pinned_index(self) -> int | None:
+        """The index the chosen microphone resolved to on the last open."""
+        return self._pinned_index
 
     def list_input_devices(self) -> list[tuple[int, str]]:
         """The inputs for a device picker, listed afresh when that is safe.
@@ -366,7 +387,6 @@ class Recorder:
                         log.warning("input device %s failed (%s), trying next", dev, exc)
                     continue
                 self._stream, self._stream_rate = stream, rate
-                self._open_device = device
                 self._active_device = dev
                 with self._lock:
                     self._ring.clear()
@@ -459,7 +479,8 @@ class Recorder:
 
     def start(self, device: int | None = None) -> None:
         """`device` overrides the user's saved microphone choice (see
-        Config.input_device_index); None means "use the saved one"."""
+        Config.input_device_name) with an explicit index; None means "use the
+        saved one"."""
         with self._stream_lock:
             if self.is_recording:
                 return
@@ -524,7 +545,8 @@ class Recorder:
                 # start() has only just finished — this was a tap, not speech.
                 held = time.monotonic() - self._hold_started
             raw, preroll = self._collect()
-            if raw.size == 0 and self._stream is not None:
+            delivered_nothing = raw.size == 0 and self._stream is not None
+            if delivered_nothing:
                 # Not "the room was quiet" — the device handed us nothing at
                 # all, so it is the stream that failed, not the microphone.
                 # Drop it now: the next attempt then opens a fresh one instead
@@ -544,15 +566,21 @@ class Recorder:
         peak = float(np.abs(audio).max()) if audio.size else 0.0
         if peak > 0.0:
             self._silent_runs.pop(self._active_device, None)
-        elif audio.size:
-            # Exactly zero, not merely quiet: a live microphone always carries
-            # some noise floor, so this input is handing over nothing. It opened
-            # without complaint, so the fallback in ensure_stream never saw it,
-            # and every later hold would keep landing on the same dead input.
+        elif audio.size or delivered_nothing:
+            # Exactly zero, not merely quiet - or no samples at all. A live
+            # microphone always carries some noise floor, so this input is
+            # handing over nothing. It opened without complaint, so the fallback
+            # in ensure_stream never saw it, and every later hold would keep
+            # landing on the same dead input. "No samples at all" was not
+            # counted before 29.09.2026, which let a pinned index that had come
+            # to mean a speaker output stay chosen indefinitely. A stream that
+            # merely stalled (see _stream_is_dead) is reopened fresh after the
+            # first such hold, so it recovers long before the second strike.
+            what = "no audio at all" if delivered_nothing else "digital silence"
             run = self._silent_runs.get(self._active_device, 0) + 1
             self._silent_runs[self._active_device] = run
-            log.warning("device %s delivered digital silence (%d in a row)",
-                        self._active_device, run)
+            log.warning("device %s delivered %s (%d in a row)",
+                        self._active_device, what, run)
             if run >= SILENT_STRIKES:
                 with self._stream_lock:
                     self._silent_devices.add(self._active_device)
@@ -591,6 +619,21 @@ class Recorder:
             self._collect()
             self._schedule_release()
         log.info("recording cancelled")
+
+
+def _resolve_input_name(name: str | None) -> int | None:
+    """Today's index of the microphone called `name`, None for the default.
+
+    None as well when that microphone is not connected: the fallback chain then
+    starts from the system default instead of failing outright.
+    """
+    if not name:
+        return None
+    for idx, dev_name in input_devices():
+        if dev_name == name:
+            return idx
+    log.warning("chosen microphone %r is not connected; using the system default", name)
+    return None
 
 
 def input_devices() -> list[tuple[int, str]]:

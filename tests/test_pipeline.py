@@ -267,7 +267,7 @@ def test_sample_rate_is_cached_per_device():
     assert attempts == [48000], f"cached rate should be used directly, got {attempts}"
 
 
-def test_silent_device_is_dropped_from_the_fallback_chain():
+def test_silent_device_is_dropped_from_the_fallback_chain(monkeypatch):
     """An input that opens cleanly and then hands over nothing but zeros — a line
     input with an empty socket being the usual culprit — used to be chosen again
     on every hold, so dictation stayed dead for a whole session while the log
@@ -292,9 +292,13 @@ def test_silent_device_is_dropped_from_the_fallback_chain():
         def close(self):
             pass
 
+    monkeypatch.setattr(audio, "_reread_devices", lambda: None)
+    monkeypatch.setattr(audio, "input_devices", lambda: [(27, "Line in (Realtek)")])
+
     def check(mode):
         rec = audio.Recorder(
-            Config(input_device_index=27, mic_mode=mode, preroll_ms=0, tail_ms=0)
+            Config(input_device_name="Line in (Realtek)", mic_mode=mode,
+                   preroll_ms=0, tail_ms=0)
         )
         opened: list[int | None] = []
 
@@ -401,7 +405,7 @@ def test_missing_model_is_reported_as_missing_not_as_a_loader_crash(monkeypatch)
         transcribe.Transcriber(Config(model="gigaam-v3-ru")).load()
 
 
-def test_retiring_a_silent_device_notifies_its_owner():
+def test_retiring_a_silent_device_notifies_its_owner(monkeypatch):
     """The recorder must announce a retirement, not just act on it: the skip
     list lives for one session only."""
     import time
@@ -413,8 +417,11 @@ def test_retiring_a_silent_device_notifies_its_owner():
         def stop(self): pass
         def close(self): pass
 
+    monkeypatch.setattr(audio, "_reread_devices", lambda: None)
+    monkeypatch.setattr(audio, "input_devices", lambda: [(27, "Line in (Realtek)")])
     rec = audio.Recorder(
-        Config(input_device_index=27, mic_mode="on_demand", preroll_ms=0, tail_ms=0)
+        Config(input_device_name="Line in (Realtek)", mic_mode="on_demand",
+               preroll_ms=0, tail_ms=0)
     )
     rec._make_stream = lambda device, rate: FakeStream()
     retired = []
@@ -433,9 +440,9 @@ def test_retiring_a_silent_device_notifies_its_owner():
 
 
 def test_a_silent_device_stops_being_pinned_in_the_settings(monkeypatch):
-    """The skip list dies with the session but input_device_index does not, so a
-    dead index stayed in the config and every single launch spent two holds
-    rediscovering that it is dead. Retiring an input must clear the pin, leaving
+    """The skip list dies with the session but the chosen microphone does not,
+    so a dead choice would make every launch spend two holds rediscovering that
+    it is dead. Retiring the chosen microphone must clear the choice, leaving
     the app on the system default — which costs nothing if the device returns.
     """
     from windictoo import app, engine
@@ -444,22 +451,130 @@ def test_a_silent_device_stops_being_pinned_in_the_settings(monkeypatch):
     monkeypatch.setattr(engine, "make", lambda cfg, spec: object())
     saved = []
     monkeypatch.setattr(config_mod.Config, "save",
-                        lambda self: saved.append(self.input_device_index))
+                        lambda self: saved.append(self.input_device_name))
 
-    cfg = Config(input_device_index=21)
+    cfg = Config(input_device_name="Headset")
     dictation = app.Dictation(cfg)
     assert dictation.recorder.on_device_retired is not None, (
         "the recorder has to be wired to whoever owns the settings"
     )
+    dictation.recorder._pinned_index = 21  # what "Headset" resolved to on open
 
     dictation.recorder.on_device_retired(15)
-    assert cfg.input_device_index == 21 and saved == [], (
-        "another input going silent must not touch the pin"
+    assert cfg.input_device_name == "Headset" and saved == [], (
+        "another input going silent must not touch the choice"
     )
 
     dictation.recorder.on_device_retired(21)
-    assert cfg.input_device_index is None
+    assert cfg.input_device_name is None
     assert saved == [None], "the change has to survive the restart"
+
+
+def test_a_fallback_retiring_leaves_an_unconnected_choice_alone(monkeypatch):
+    """When the chosen microphone is not connected, the recorder falls back to
+    the default, and pinned_index is None. A retirement of that fallback says
+    nothing about the chosen microphone and must not clear it."""
+    from windictoo import app, engine
+    from windictoo import config as config_mod
+
+    monkeypatch.setattr(engine, "make", lambda cfg, spec: object())
+    monkeypatch.setattr(config_mod.Config, "save", lambda self: None)
+    cfg = Config(input_device_name="Headset")
+    dictation = app.Dictation(cfg)
+    dictation.recorder._pinned_index = None
+    dictation.recorder.on_device_retired(None)
+    assert cfg.input_device_name == "Headset"
+
+
+def test_the_chosen_microphone_is_found_by_name_after_renumbering(monkeypatch):
+    """29.09.2026: the settings held index 23, which by then meant a Realtek
+    speaker output - it opened without error and never delivered a sample,
+    while the headset sat at 18. A name survives renumbering; an index doesn't.
+    """
+    from windictoo import audio
+
+    class FakeStream:
+        def start(self): pass
+        def stop(self): pass
+        def close(self): pass
+
+    opened = []
+
+    def make(device, rate):
+        opened.append(device)
+        return FakeStream()
+
+    listing = [[(18, "Kopfhörer (PLT V5200 Series)"), (23, "PC-Lautsprecher")]]
+    monkeypatch.setattr(audio, "_reread_devices", lambda: None)
+    monkeypatch.setattr(audio, "_preferred_input_device", lambda: None)
+    monkeypatch.setattr(audio, "input_devices", lambda: listing[0])
+
+    rec = audio.Recorder(Config(input_device_name="Kopfhörer (PLT V5200 Series)",
+                                mic_mode="on_demand"))
+    rec._make_stream = make
+    rec.ensure_stream()
+    assert opened[-1] == 18 and rec.pinned_index == 18
+    rec._close_stream()
+
+    listing[0] = [(5, "PC-Lautsprecher"), (9, "Kopfhörer (PLT V5200 Series)")]
+    rec.ensure_stream()
+    assert opened[-1] == 9, f"should have followed the name to 9, opened {opened}"
+    rec._close_stream()
+
+    listing[0] = [(5, "PC-Lautsprecher")]  # headset switched off
+    rec.ensure_stream()
+    assert opened[-1] is None, "an absent choice falls back to the default"
+    assert rec.pinned_index is None
+
+
+def test_a_legacy_device_number_is_dropped_when_the_config_loads(tmp_path, monkeypatch):
+    """A number saved by an older build cannot be trusted to mean the same
+    microphone any more; guessing a name from it could pin the wrong one."""
+    import json
+
+    from windictoo import config as config_mod
+
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps({"input_device_index": 23, "mic_mode": "lazy"}),
+                    encoding="utf-8")
+    monkeypatch.setattr(config_mod, "CONFIG_PATH", path)
+    cfg = config_mod.Config.load()
+    assert cfg.input_device_index is None and cfg.input_device_name is None
+    assert cfg.mic_mode == "lazy", "the rest of the file still loads"
+
+
+def test_a_device_that_delivers_no_samples_at_all_is_retired(monkeypatch):
+    """29.09.2026: the device opened, and not one sample ever arrived - "captured
+    no audio at all" on every hold. The 1.8.5 rule counted only exact zeros, so
+    this dead input was never retired and stayed chosen indefinitely."""
+    import time
+
+    from windictoo import audio
+
+    class FakeStream:
+        def start(self): pass
+        def stop(self): pass
+        def close(self): pass
+
+    monkeypatch.setattr(audio, "_reread_devices", lambda: None)
+    monkeypatch.setattr(audio, "input_devices", lambda: [(23, "PC-Lautsprecher")])
+    rec = audio.Recorder(Config(input_device_name="PC-Lautsprecher", mic_mode="lazy",
+                                preroll_ms=0, tail_ms=0))
+    rec._make_stream = lambda device, rate: FakeStream()
+    retired = []
+    rec.on_device_retired = retired.append
+
+    for _ in range(audio.SILENT_STRIKES):
+        rec.ensure_stream()
+        with rec._lock:
+            rec.is_recording = True
+            rec._chunks = []  # the callback never fired
+        rec._hold_started = time.monotonic() - 1.0
+        with pytest.raises(audio.EmptyRecording):
+            rec.stop()
+
+    assert retired == [23], f"expected device 23 retired, got {retired}"
+    assert 23 in rec._silent_devices
 
 
 def test_a_device_list_frozen_at_startup_is_reread_before_opening(monkeypatch):

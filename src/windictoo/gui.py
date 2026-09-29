@@ -1025,15 +1025,17 @@ class WinDictooGUI:
         devices = self.dictation.recorder.list_input_devices()
         mic_default = i18n.t("gen.mic_default")
         mic_labels = [mic_default] + [name for _, name in devices]
-        current_label = next(
-            (name for idx, name in devices if idx == self.cfg.input_device_index),
-            mic_default,
-        )
+        chosen = self.cfg.input_device_name
+        if chosen and chosen not in mic_labels:
+            # Chosen but not connected right now: still listed, so the picker
+            # does not claim "system default" while the settings say otherwise.
+            mic_labels.append(chosen)
+        current_label = chosen or mic_default
         mic_var = ctk.StringVar(value=current_label)
         ctk.CTkOptionMenu(c_mic, values=mic_labels, variable=mic_var, fg_color=theme.CARD,
                           text_color=theme.TEXT, corner_radius=theme.RADIUS_WIDGET,
                           button_color=theme.ACCENT, button_hover_color=theme.ACCENT_HOVER,
-                          command=lambda v: self._set_input_device(v, devices)).pack(
+                          command=lambda v: self._set_input_device(v)).pack(
             fill="x", padx=14, pady=(2, 6))
         ctk.CTkLabel(c_mic, text=i18n.t("gen.mic_hint"),
                      font=_font(11), text_color=theme.MUTED, wraplength=460,
@@ -1326,9 +1328,10 @@ class WinDictooGUI:
         self.cfg.insertion_method = v
         self.cfg.save()
 
-    def _set_input_device(self, label: str, devices: list[tuple[int, str]]) -> None:
-        idx = next((i for i, name in devices if name == label), None)
-        self.cfg.input_device_index = idx
+    def _set_input_device(self, label: str) -> None:
+        # By name: the index this label has now is not the one it will have
+        # after the next plug or reboot (see Config.input_device_name).
+        self.cfg.input_device_name = None if label == i18n.t("gen.mic_default") else label
         self.cfg.save()
         # The stream is now long-lived, so a device change has to close the
         # old one; otherwise the app keeps listening to the previous

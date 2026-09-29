@@ -81,11 +81,16 @@ class Config:
     # (otherwise holding e.g. Space types spaces / moves the caret).
     suppress_hotkey: bool = True
 
-    # None = system default (WASAPI), else a specific sounddevice index from
-    # audio.input_devices(). Indices aren't stable across reboots/USB
-    # replugs on every system, so treat a stale value as "device gone" and
-    # fall back rather than raising (Recorder.start() already does this).
+    # Legacy: the chosen microphone as a sounddevice index. Kept only so a
+    # config.json written by an older build still loads; it is dropped on load
+    # and no longer read. See input_device_name.
     input_device_index: int | None = None
+    # The microphone the user picked, by the name Windows gives it (as listed
+    # by audio.input_devices()), or None for the system default. By name
+    # because an index means a different device after almost any plug, unplug
+    # or reboot: on 29.09.2026 a pinned 23 had come to mean a Realtek speaker
+    # output, which opened without error and never delivered a single sample.
+    input_device_name: str | None = None
 
     # An id from windictoo.engine.MODELS — the Whisper sizes ("small",
     # "large-v3", ...) plus the onnx entries ("gigaam-v3-ru", "parakeet-v3").
@@ -170,7 +175,16 @@ class Config:
                 # json.loads() rejects outright.
                 raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
                 known = {f for f in cls.__dataclass_fields__}
-                return cls(**{k: v for k, v in raw.items() if k in known})
+                cfg = cls(**{k: v for k, v in raw.items() if k in known})
+                if cfg.input_device_index is not None:
+                    # A number saved by an older build cannot be trusted to mean
+                    # the same microphone any more, and guessing a name from it
+                    # could pin the wrong one for good. Forget it; the system
+                    # default is where an unpinned microphone goes anyway.
+                    log.info("dropping legacy input_device_index=%s; microphones are "
+                             "remembered by name now", cfg.input_device_index)
+                    cfg.input_device_index = None
+                return cfg
             except (json.JSONDecodeError, TypeError, ValueError) as exc:
                 log.warning("config.json unreadable (%s), using defaults", exc)
         return cls()

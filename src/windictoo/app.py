@@ -47,19 +47,23 @@ class Dictation:
         self._cancelled = threading.Event()
 
     def _forget_pinned_device(self, device: object) -> None:
-        """Stop pinning an input just caught delivering nothing but silence.
+        """Stop pinning a microphone just caught delivering nothing usable.
 
-        The recorder skips it for the rest of the session, but the config
-        outlives the session: a dead index stayed in input_device_index and
-        every single launch spent two holds rediscovering that it is dead.
+        The recorder skips it for the rest of the session, but the choice in
+        the settings outlives the session, and every single launch would spend
+        two holds rediscovering that it is dead.
         Falling back to the system default costs nothing if the device comes
         back — Windows hands it over again — and saves those two holds.
         """
-        if device is None or device != self.cfg.input_device_index:
+        # Only a retirement of the chosen microphone itself: pinned_index is
+        # None when nothing is chosen or it was not connected, and then the
+        # retired device is a fallback that the settings never named.
+        pinned = self.recorder.pinned_index
+        if not self.cfg.input_device_name or pinned is None or device != pinned:
             return
         log.warning("input device %s dropped from the settings; following the "
                     "system default from now on", device)
-        self.cfg.input_device_index = None
+        self.cfg.input_device_name = None
         self.cfg.save()
 
     def warm_up(self) -> None:
