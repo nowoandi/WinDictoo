@@ -13,6 +13,25 @@ from .app import Dictation, State
 
 log = logging.getLogger(__name__)
 
+# Windows caps a tray tooltip at 128 UTF-16 units including the terminating
+# null (NOTIFYICONDATA.szTip), and pystray raises instead of truncating. The
+# 1.8.10 messages that name the microphone ran past it - 131 units for the
+# Realtek headset input on 05.10.2026 - and the tooltip stopped updating.
+_TIP_MAX = 127
+
+
+def fit_tooltip(text: str) -> str:
+    """`text`, shortened with an ellipsis to what a tray tooltip can hold."""
+    def units(s: str) -> int:
+        return len(s.encode("utf-16-le")) // 2
+
+    if units(text) <= _TIP_MAX:
+        return text
+    cut = text[:_TIP_MAX - 1]
+    while units(cut + "…") > _TIP_MAX:
+        cut = cut[:-1]
+    return cut.rstrip() + "…"
+
 _COLORS: dict[State, tuple[int, int, int]] = {
     State.IDLE: (120, 120, 130),
     State.RECORDING: (220, 60, 60),
@@ -74,6 +93,6 @@ class Tray:
             self.icon.icon = _icon(state)
             label = i18n.tray_label(state)
             msg = self.dictation.message
-            self.icon.title = f"WinDictoo — {label}" + (f": {msg}" if msg else "")
+            self.icon.title = fit_tooltip(f"WinDictoo — {label}" + (f": {msg}" if msg else ""))
         except Exception:  # noqa: BLE001
             log.exception("tray update failed")

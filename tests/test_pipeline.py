@@ -803,6 +803,21 @@ def test_an_unchosen_microphone_is_not_given_up_on_for_a_quiet_room(monkeypatch)
     assert all(d == 31 for d in opened)
 
 
+def test_a_tray_tooltip_never_exceeds_what_windows_allows():
+    """05.10.2026: the message naming the microphone made the tooltip 131 units
+    long, pystray raised "string too long (131, maximum length 128)", and the
+    tray stopped showing state. Every tooltip has to fit, short ones untouched."""
+    from windictoo.tray import fit_tooltip
+
+    msg = i18n.t("app.mic_switched_to_default", device="Headset Microphone (Realtek(R) Audio)")
+    long_tip = "WinDictoo — " + i18n.t("tray.error") + ": " + msg
+    for tip in (long_tip, "x" * 500, "😀" * 100):
+        fitted = fit_tooltip(tip)
+        assert len(fitted.encode("utf-16-le")) // 2 <= 127, fitted
+        assert fitted.endswith("…")
+    assert fit_tooltip("WinDictoo — ready") == "WinDictoo — ready"
+
+
 def test_split_uninstall_command():
     from windictoo import oldversions
 
