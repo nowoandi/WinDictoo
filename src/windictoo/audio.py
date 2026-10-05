@@ -178,6 +178,9 @@ class Recorder:
         # asked for an explicit index. Lets the owner of the settings tell a
         # retirement of the chosen microphone from one of a fallback.
         self._pinned_index: int | None = None
+        # Name of the device the current stream was opened on, kept from the
+        # moment of opening so a message can say which microphone was heard.
+        self._active_name: str | None = None
         # Called with the retired device when one is caught delivering nothing
         # but silence, so whoever owns the settings can stop pinning it. A hook
         # rather than a config write of our own on purpose: the onboarding
@@ -336,6 +339,11 @@ class Recorder:
             self._forget_device_indices()
 
     @property
+    def active_device_name(self) -> str | None:
+        """The name of the microphone the last stream listened to."""
+        return self._active_name
+
+    @property
     def pinned_index(self) -> int | None:
         """The index the chosen microphone resolved to on the last open."""
         return self._pinned_index
@@ -388,6 +396,7 @@ class Recorder:
                     continue
                 self._stream, self._stream_rate = stream, rate
                 self._active_device = dev
+                self._active_name = _device_name(dev)
                 with self._lock:
                     self._ring.clear()
                     self._ring_samples = 0
@@ -564,9 +573,27 @@ class Recorder:
             log.info("recording rejected as too short (held %.2fs)", held)
             raise EmptyRecording("short")
         peak = float(np.abs(audio).max()) if audio.size else 0.0
-        if peak > 0.0:
+        # A chosen microphone gets one more way to be wrong. When it hears
+        # nothing usable while Windows' own default input is a *different*
+        # device, the choice is the likeliest culprit - the user speaks into
+        # the device they made the default. On 05.10.2026 the choice was a
+        # phantom "Headset Microphone (Realtek)" that the combo jack shows for
+        # a while after boot with headphones plugged in: it sent a noise floor,
+        # not exact zeros, so nothing below fired and the user had to restart
+        # twice. Only for the chosen device and only with a different default
+        # to fall back to: an unpinned or default microphone that is merely in
+        # a quiet room must never be given up on for that.
+        default = _preferred_input_device()
+        pinned_unheard = (
+            peak < MIN_PEAK
+            and self._pinned_index is not None
+            and self._active_device == self._pinned_index
+            and default is not None
+            and default != self._pinned_index
+        )
+        if not (delivered_nothing or (audio.size and peak == 0.0) or pinned_unheard):
             self._silent_runs.pop(self._active_device, None)
-        elif audio.size or delivered_nothing:
+        else:
             # Exactly zero, not merely quiet - or no samples at all. A live
             # microphone always carries some noise floor, so this input is
             # handing over nothing. It opened without complaint, so the fallback
@@ -576,7 +603,12 @@ class Recorder:
             # to mean a speaker output stay chosen indefinitely. A stream that
             # merely stalled (see _stream_is_dead) is reopened fresh after the
             # first such hold, so it recovers long before the second strike.
-            what = "no audio at all" if delivered_nothing else "digital silence"
+            if delivered_nothing:
+                what = "no audio at all"
+            elif peak == 0.0:
+                what = "digital silence"
+            else:
+                what = f"nothing usable while the system default is device {default}"
             run = self._silent_runs.get(self._active_device, 0) + 1
             self._silent_runs[self._active_device] = run
             log.warning("device %s delivered %s (%d in a row)",
@@ -619,6 +651,15 @@ class Recorder:
             self._collect()
             self._schedule_release()
         log.info("recording cancelled")
+
+
+def _device_name(device: int | None) -> str | None:
+    """The name PortAudio gives `device`, or the default input's for None."""
+    try:
+        info = sd.query_devices(kind="input") if device is None else sd.query_devices(device)
+        return info["name"]
+    except Exception:  # noqa: BLE001 - only ever used for a message
+        return None
 
 
 def _resolve_input_name(name: str | None) -> int | None:

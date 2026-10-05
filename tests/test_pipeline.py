@@ -698,6 +698,111 @@ def test_no_microphone_is_told_to_the_user_in_words(monkeypatch):
     assert "-1" not in dictation.message
 
 
+REALTEK = "Headset Microphone (Realtek(R) Audio)"
+RODE = "Mikrofon (RODE NT-USB)"
+
+
+def _two_microphones(monkeypatch, chosen, default=31):
+    """A Dictation whose recorder sees the RODE at 31 and the Realtek jack's
+    headset input at 36, with fake streams and a settings file that is never
+    written to disk."""
+    from windictoo import app, audio, engine
+    from windictoo import config as config_mod
+
+    names = {31: RODE, 36: REALTEK}
+    monkeypatch.setattr(engine, "make", lambda cfg, spec: object())
+    monkeypatch.setattr(config_mod.Config, "save", lambda self: None)
+    monkeypatch.setattr(audio, "_reread_devices", lambda: None)
+    monkeypatch.setattr(audio, "input_devices", lambda: sorted(names.items()))
+    monkeypatch.setattr(audio, "_preferred_input_device", lambda: default)
+    monkeypatch.setattr(audio, "_device_name", lambda d: names.get(d, "default"))
+
+    class FakeStream:
+        def start(self): pass
+        def stop(self): pass
+        def close(self): pass
+
+    opened = []
+
+    def make(device, rate):
+        opened.append(device)
+        return FakeStream()
+
+    dictation = app.Dictation(Config(input_device_name=chosen, mic_mode="on_demand",
+                                     preroll_ms=0, tail_ms=0))
+    dictation.recorder._make_stream = make
+    # Going back to idle clears the message, so keep each one as it was shown.
+    shown = []
+
+    def reset_later():
+        shown.append(dictation.message)
+        dictation._set_state(app.State.IDLE)
+
+    monkeypatch.setattr(dictation, "_reset_later", reset_later)
+    dictation.shown = shown
+    return dictation, opened
+
+
+def _hold(dictation, level):
+    """One press of the hotkey during which the microphone delivers `level`."""
+    import time
+
+    from windictoo import audio
+
+    dictation.start()
+    rec = dictation.recorder
+    with rec._lock:
+        rec._chunks = [np.full(audio.SAMPLE_RATE, level, dtype=np.float32)]
+    rec._hold_started = time.monotonic() - 1.0
+    dictation.stop_and_process()
+
+
+def test_a_chosen_microphone_that_hears_nothing_gives_way_to_the_default(monkeypatch):
+    """05.10.2026: the chosen microphone was a phantom "Headset Microphone
+    (Realtek)" that the combo jack shows for a while after boot with headphones
+    plugged in. It sent a noise floor - not exact zeros, so the 1.8.5 rule never
+    fired - while the user spoke into a RODE, the Windows default. It took two
+    restarts. Two unheard holds on the chosen device must now drop the choice and
+    move to the default, and each hold must say which microphone was listened to.
+    """
+    dictation, opened = _two_microphones(monkeypatch, chosen=REALTEK)
+
+    _hold(dictation, 0.001)  # a noise floor: nobody is speaking into this one
+    assert opened[-1] == 36
+    assert dictation.cfg.input_device_name == REALTEK, "one hold is not enough"
+    assert dictation.shown[-1] == i18n.t("app.mic_silent_named", device=REALTEK)
+
+    _hold(dictation, 0.001)
+    assert dictation.cfg.input_device_name is None, "the choice must be dropped"
+    assert dictation.shown[-1] == i18n.t("app.mic_switched_to_default", device=REALTEK)
+
+    dictation.start()
+    assert opened[-1] == 31, f"the next hold must open the default, opened {opened}"
+    dictation.cancel()
+
+
+def test_a_quiet_room_on_the_default_microphone_is_not_given_up_on(monkeypatch):
+    """When the chosen microphone *is* the Windows default, silence means a quiet
+    room, and there is nowhere better to go anyway: the choice stays."""
+    dictation, opened = _two_microphones(monkeypatch, chosen=RODE, default=31)
+    for _ in range(3):
+        _hold(dictation, 0.001)
+    assert dictation.cfg.input_device_name == RODE
+    assert all(d == 31 for d in opened)
+
+
+def test_an_unchosen_microphone_is_not_given_up_on_for_a_quiet_room(monkeypatch):
+    """Without a choice the recorder is already on the default; a noise floor
+    there is not a reason to wander off to some other input."""
+    from windictoo import audio
+
+    dictation, opened = _two_microphones(monkeypatch, chosen=None, default=31)
+    for _ in range(3):
+        _hold(dictation, 0.001)
+    assert not dictation.recorder._silent_devices
+    assert all(d == 31 for d in opened)
+
+
 def test_split_uninstall_command():
     from windictoo import oldversions
 

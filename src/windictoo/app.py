@@ -120,11 +120,22 @@ class Dictation:
             if self.state is not State.RECORDING:
                 return
             self._set_state(State.TRANSCRIBING)
+        chosen_before = self.cfg.input_device_name
         try:
             audio = self.recorder.stop()
         except EmptyRecording as exc:
             if exc.reason == "silent":
-                msg = i18n.t("app.mic_silent")
+                # Name the microphone: "the microphone hears nothing" left the
+                # user guessing which one, twice (19.09 and 05.10.2026), and the
+                # answer was only in the log. If this very hold made the recorder
+                # give up on the chosen one, say where it is going instead.
+                device = self.recorder.active_device_name
+                if chosen_before and not self.cfg.input_device_name:
+                    msg = i18n.t("app.mic_switched_to_default", device=chosen_before)
+                elif device:
+                    msg = i18n.t("app.mic_silent_named", device=device)
+                else:
+                    msg = i18n.t("app.mic_silent")
             else:
                 msg = i18n.t("app.too_short")
             self._set_state(State.ERROR, msg)
