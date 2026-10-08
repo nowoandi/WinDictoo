@@ -1617,3 +1617,12 @@ def test_model_catalogue_filters_by_language():
     german = {m.id for m in engine.models_for("de")}
     assert "parakeet-v3" in german and "gigaam-v3-ru" not in german
     assert "gigaam-v3-ru" in {m.id for m in engine.models_for("ru")}
+
+
+if __name__ == "__main__":
+    # Этот файл — pytest-модуль без собственного раннера: прямой запуск
+    # `python tests/test_pipeline.py` выполнял только импорты и выходил с 0,
+    # то есть докладывал успех, не прогнав ни одной из 78 проверок. Докстринг
+    # сверху обещает «skipped (never silently passed)» — вот то же обещание
+    # для самого файла. Найдено 08.10.2026 при уборке репозитория.
+    raise SystemExit(pytest.main([__file__, "-q"]))
